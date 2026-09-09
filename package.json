@@ -6,10 +6,10 @@
     "main": "main.cjs",
     "author": "Isaac Hollow Horn Bear",
     "license": "MIT",
-    "homepage": "https://github.com/isaachollowhorn/pulsedeck",
+    "homepage": "https://github.com/IsaacHHB/pulsedeck",
     "repository": {
         "type": "git",
-        "url": "https://github.com/isaachollowhorn/pulsedeck.git"
+        "url": "https://github.com/IsaacHHB/pulsedeck.git"
     },
     "scripts": {
         "start": "electron .",
@@ -69,7 +69,7 @@
             "deleteAppDataOnUninstall": false
         },
         "publish": [
-            { "provider": "github", "owner": "isaachollowhorn", "repo": "pulsedeck", "releaseType": "release" }
+            { "provider": "github", "owner": "IsaacHHB", "repo": "pulsedeck", "releaseType": "release" }
         ]
     }
 }

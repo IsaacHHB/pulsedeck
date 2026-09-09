@@ -5,11 +5,11 @@ How the code gets to GitHub, how people install it from your website, and how up
 ## 1. Put the code on GitHub (one time)
 
 1. On GitHub, create a new **public** repository named `pulsedeck` (no README, no license — the repo already has them).
-2. If your GitHub username is not `isaachollowhorn`, change it in `package.json` (`homepage`, `repository.url`, and `build.publish[0].owner`) before pushing.
+2. If your GitHub username is not `IsaacHHB`, change it in `package.json` (`homepage`, `repository.url`, and `build.publish[0].owner`) before pushing.
 3. From the `pulsedeck` folder:
 
 ```bash
-git remote add origin https://github.com/isaachollowhorn/pulsedeck.git
+git remote add origin https://github.com/IsaacHHB/pulsedeck.git
 git push -u origin main
 ```
 
@@ -37,23 +37,23 @@ Test a release without publishing: `npm run dist` builds into `dist/` locally (W
 
 The build uses fixed file names, so two stable URLs always point at the newest files — link straight to them from your site:
 
-- Installer: `https://github.com/isaachollowhorn/pulsedeck/releases/latest/download/PulseDeck-Setup.exe`
-- Portable zip: `https://github.com/isaachollowhorn/pulsedeck/releases/latest/download/PulseDeck-Portable.zip`
-- Release page with notes and version history: `https://github.com/isaachollowhorn/pulsedeck/releases/latest`
+- Installer: `https://github.com/IsaacHHB/pulsedeck/releases/latest/download/PulseDeck-Setup.exe`
+- Portable zip: `https://github.com/IsaacHHB/pulsedeck/releases/latest/download/PulseDeck-Portable.zip`
+- Release page with notes and version history: `https://github.com/IsaacHHB/pulsedeck/releases/latest`
 
 GitHub hosts the files on its CDN for free, with unlimited bandwidth for public repos, so your website only needs a button. If you would rather host the `.exe` on your own server, upload the installer *and* `latest.yml` to the same folder and point `build.publish` at that URL with the `generic` provider — but GitHub Releases is less work and is what the updater is configured for.
 
 A minimal button for your site (Laravel Blade or plain HTML):
 
 ```html
-<a class="btn" href="https://github.com/isaachollowhorn/pulsedeck/releases/latest/download/PulseDeck-Setup.exe">
+<a class="btn" href="https://github.com/IsaacHHB/pulsedeck/releases/latest/download/PulseDeck-Setup.exe">
     Download PulseDeck for Windows
 </a>
-<a href="https://github.com/isaachollowhorn/pulsedeck/releases/latest">Release notes &amp; portable version</a>
+<a href="https://github.com/IsaacHHB/pulsedeck/releases/latest">Release notes &amp; portable version</a>
 ```
 
 If you want the site to show the current version number automatically, GitHub's public API returns it with no auth:
-`GET https://api.github.com/repos/isaachollowhorn/pulsedeck/releases/latest` → `tag_name`, `assets[].browser_download_url`. Cache it server-side (Laravel `Cache::remember`) for an hour to stay under the unauthenticated rate limit.
+`GET https://api.github.com/repos/IsaacHHB/pulsedeck/releases/latest` → `tag_name`, `assets[].browser_download_url`. Cache it server-side (Laravel `Cache::remember`) for an hour to stay under the unauthenticated rate limit.
 
 ## 4. How users get updates
 

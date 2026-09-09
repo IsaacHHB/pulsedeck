@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const { Library } = require('./library.cjs');
 const pkg = require('./package.json');
-const RELEASES_URL = `${(pkg.repository?.url || 'https://github.com/isaachollowhorn/pulsedeck').replace(/\.git$/, '')}/releases/latest`;
+const RELEASES_URL = `${(pkg.repository?.url || 'https://github.com/IsaacHHB/pulsedeck').replace(/\.git$/, '')}/releases/latest`;
 
 /**
  * Where sounds and settings live:
