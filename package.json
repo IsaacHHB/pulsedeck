@@ -1,0 +1,75 @@
+{
+    "name": "pulsedeck",
+    "productName": "PulseDeck",
+    "version": "0.5.0",
+    "description": "A local Windows soundboard, microphone mixer, voice changer, and replay buffer for Discord, games, and calls",
+    "main": "main.cjs",
+    "author": "Isaac Hollow Horn Bear",
+    "license": "MIT",
+    "homepage": "https://github.com/isaachollowhorn/pulsedeck",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/isaachollowhorn/pulsedeck.git"
+    },
+    "scripts": {
+        "start": "electron .",
+        "test": "node --test tests/library.test.cjs && node tests/voice-effects.cjs && node tests/integration.cjs",
+        "icon": "node make-icon.cjs",
+        "dist": "electron-builder --win",
+        "dist:publish": "electron-builder --win --publish always",
+        "package": "node make-icon.cjs && node build.mjs"
+    },
+    "dependencies": {
+        "electron-updater": "^6.3.9"
+    },
+    "devDependencies": {
+        "@electron/packager": "20.3.0",
+        "electron": "44.3.0",
+        "electron-builder": "^26.0.12",
+        "lamejs": "1.2.1",
+        "playwright": "1.63.0"
+    },
+    "build": {
+        "appId": "dev.thelakotadev.pulsedeck",
+        "productName": "PulseDeck",
+        "copyright": "Copyright © 2026 Isaac Hollow Horn Bear",
+        "directories": {
+            "output": "dist"
+        },
+        "files": [
+            "*.cjs",
+            "*.js",
+            "*.html",
+            "*.css",
+            "*.json",
+            "icon.ico",
+            "!build.mjs",
+            "!make-icon.cjs",
+            "!tests/**",
+            "!test-results/**",
+            "!PulseDeck Data/**",
+            "!dist/**",
+            "!release/**"
+        ],
+        "win": {
+            "target": [
+                { "target": "nsis", "arch": ["x64"] },
+                { "target": "zip", "arch": ["x64"] }
+            ],
+            "icon": "icon.ico",
+            "artifactName": "${productName}-Portable.${ext}",
+            "requestedExecutionLevel": "asInvoker"
+        },
+        "nsis": {
+            "oneClick": false,
+            "perMachine": false,
+            "allowToChangeInstallationDirectory": true,
+            "artifactName": "${productName}-Setup.${ext}",
+            "shortcutName": "PulseDeck",
+            "deleteAppDataOnUninstall": false
+        },
+        "publish": [
+            { "provider": "github", "owner": "isaachollowhorn", "repo": "pulsedeck", "releaseType": "release" }
+        ]
+    }
+}

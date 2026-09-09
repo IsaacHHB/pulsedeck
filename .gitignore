@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/
+user-data/
+test-results/
+PulseDeck Data/
+*.log
+.DS_Store
+Thumbs.db

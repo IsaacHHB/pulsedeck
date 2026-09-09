@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'">
+    <title>PulseDeck</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <aside class="sidebar">
+        <div class="brand"><span class="logo">▥</span><span class="brand-name">PulseDeck</span><span class="version">v0.5.0</span></div>
+
+        <nav class="nav-list" aria-label="Views">
+            <button class="nav active" id="boardNav" data-view="board"><span class="nav-icon">▦</span><span class="nav-text">Soundboard</span><small id="navCount">0</small></button>
+            <button class="nav" id="voiceNav" data-view="voice"><span class="nav-icon">◉</span><span class="nav-text">Voice changer</span><small id="navVoice">Natural</small></button>
+            <button class="nav" id="replayNav" data-view="replay"><span class="nav-icon">●</span><span class="nav-text">Replay buffer</span><small id="navReplay">Off</small></button>
+            <button class="nav" id="overlayNav"><span class="nav-icon">▣</span><span class="nav-text">Game overlay</span><small id="navOverlay">Off</small></button>
+            <button class="nav" id="guideNav"><span class="nav-icon">↗</span><span class="nav-text">Setup guide</span></button>
+        </nav>
+
+        <div class="sidebar-status" id="sidebarStatus">
+            <div class="status-row"><span class="dot" id="sidebarDot"></span><span id="sidebarStatusText">Broadcast offline</span></div>
+            <p id="sidebarStatusHint">Connect audio in the mixer to go live.</p>
+        </div>
+
+        <div class="shortcut-card">
+            <span class="eyebrow">Global shortcuts</span>
+            <div class="shortcut-row"><span>Stop every sound</span><span class="keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Space</kbd></span></div>
+            <div class="shortcut-row"><span>Mute microphone</span><span class="keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>M</kbd></span></div>
+            <div class="shortcut-row"><span>Save replay clip</span><span class="keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>R</kbd></span></div>
+            <div class="shortcut-row"><span>Show / hide overlay</span><span class="keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>O</kbd></span></div>
+            <div class="shortcut-row"><span>Play pads 1–10</span><span class="keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>1–9, 0</kbd></span></div>
+        </div>
+        <button class="text-button data-button" id="openData">Open library folder ↗</button>
+    </aside>
+
+    <div class="workspace">
+        <header>
+            <div class="breadcrumb"><span id="crumbView">Soundboard</span></div>
+            <div class="header-actions">
+                <button class="chip update-chip" id="updateBtn" hidden title="An update has been downloaded"><span class="chip-icon">↑</span><span id="updateBtnText">Restart to update</span></button>
+                <button class="chip" id="overlayBtn" title="Show or hide the in-game overlay (Ctrl+Alt+O)" aria-pressed="false"><span class="chip-icon">▣</span><span id="overlayBtnText">Overlay</span></button>
+                <button class="chip" id="headerVoice" title="Open the voice changer"><span class="chip-icon voice-symbol" id="headerVoiceSymbol">◌</span><span id="headerVoiceName">Natural</span></button>
+                <button id="muteBtn" class="chip mute-button" aria-pressed="false" title="Mute microphone (Ctrl+Alt+M)"><span class="mute-icon">●</span><span class="mute-text">Mic live</span></button>
+                <div class="status-pill" id="statusPill"><i></i><span>Offline</span></div>
+            </div>
+        </header>
+
+        <main>
+            <div class="views">
+                <!-- Soundboard view -->
+                <section class="view board-panel" id="boardView">
+                    <div class="library-toolbar">
+                        <div class="tabs" role="tablist">
+                            <button class="tab active" id="allTab" role="tab">All <span id="clipCount">0</span></button>
+                            <button class="tab" id="loopTab" role="tab">Loops <span id="loopCount">0</span></button>
+                        </div>
+                        <label class="search-field"><span class="search-icon">⌕</span><input id="search" type="search" placeholder="Search" aria-label="Search sounds"></label>
+                        <span class="toolbar-spacer"></span>
+                        <button class="stop-button" id="stopAll" title="Stop every playing sound (Ctrl+Alt+Space)"><span>■</span> Stop all</button>
+                        <button class="primary" id="importBtn"><span class="btn-icon">＋</span>Add sounds</button>
+                    </div>
+
+                    <div class="sound-grid" id="soundGrid"></div>
+
+                    <div class="empty-state" id="emptyState">
+                        <div class="empty-art">♫<span>＋</span></div>
+                        <h2>Add your first sounds</h2>
+                        <p>Drop audio files anywhere in this window, or pick a few favorites.<br>Each sound gets a pad, a color, and a shortcut you can change.</p>
+                        <button class="secondary" id="emptyImport">＋ Add sounds</button>
+                        <small>MP3 · WAV · OGG · M4A · FLAC · WEBM · up to 30 MB each</small>
+                    </div>
+
+                    <div class="library-footer">
+                        <span id="libraryHint">Click a pad to play, click again to stop.</span>
+                        <span class="footer-hint">Drag pads to reorder — the first ten get Ctrl+Alt+1…9, 0 · right-click to edit</span>
+                    </div>
+                </section>
+
+                <!-- Voice changer view -->
+                <section class="view voice-panel" id="voiceView" hidden>
+                    <div class="voice-hero" id="voiceHero">
+                        <div class="hero-symbol" id="heroSymbol">◌</div>
+                        <div class="hero-text">
+                            <h2 id="heroName">Natural</h2>
+                            <p id="effectDescription" aria-live="polite">Your unprocessed voice.</p>
+                        </div>
+                        <div class="hero-meter">
+                            <div class="meter-label"><span>Your voice</span><span id="micLevelLabel">Mic off</span></div>
+                            <div class="meter mic-meter"><div id="micLevelFill"></div></div>
+                        </div>
+                        <button class="secondary hear-button" id="hearBtn" aria-pressed="false" title="Preview your processed voice in your headphones"><span class="btn-icon">◯</span><span>Hear myself</span></button>
+                    </div>
+
+                    <div class="voice-controls">
+                        <div class="control-card">
+                            <div class="control-head">
+                                <label for="voicePitch">Extra pitch</label>
+                                <div class="control-value"><output id="voicePitchValue">0</output><button class="text-button reset-button" id="resetPitch" title="Reset pitch">Reset</button></div>
+                            </div>
+                            <input id="voicePitch" type="range" min="-12" max="12" step="1" value="0" aria-label="Extra pitch in semitones">
+                            <div class="range-ends"><span>Lower</span><span>Natural</span><span>Higher</span></div>
+                        </div>
+                        <div class="control-card">
+                            <div class="control-head">
+                                <label for="effectMix">Effect strength</label>
+                                <div class="control-value"><output id="effectMixValue">100%</output></div>
+                            </div>
+                            <input id="effectMix" type="range" min="0" max="100" step="1" value="100" aria-label="Effect strength">
+                            <div class="range-ends"><span>Natural voice</span><span>Full effect</span></div>
+                        </div>
+                    </div>
+
+                    <div class="effects" id="effects"></div>
+                    <p class="field-help voice-note">Effects apply to your microphone only — your sounds always play as recorded. Small pitch moves (±2–4) sound the most natural.</p>
+                </section>
+
+                <!-- Replay buffer view -->
+                <section class="view replay-panel" id="replayView" hidden>
+                    <div class="replay-arm" id="replayArm">
+                        <div class="replay-arm-main">
+                            <label class="switch big"><input type="checkbox" id="replayToggle" aria-label="Listen to my computer's audio"><span></span></label>
+                            <div class="replay-arm-text">
+                                <h2 id="replayTitle">Replay buffer is off</h2>
+                                <p id="replayHint">Turn it on to keep the last minute of everything you hear — Discord, game chat, anyone's voice — ready to save.</p>
+                            </div>
+                            <div class="replay-meter">
+                                <div class="meter-label"><span>Hearing</span><span id="replayLevelLabel">—</span></div>
+                                <div class="meter replay-level"><div id="replayLevelFill"></div></div>
+                            </div>
+                        </div>
+                        <div class="replay-arm-controls">
+                            <label class="inline-field">Keep the last
+                                <select id="replaySeconds" aria-label="Replay buffer length">
+                                    <option value="30">30 seconds</option><option value="60" selected>60 seconds</option><option value="90">90 seconds</option><option value="120">2 minutes</option><option value="180">3 minutes</option>
+                                </select>
+                            </label>
+                            <label class="check-row"><input type="checkbox" id="replayMic"><span>Include my microphone</span></label>
+                            <label class="check-row"><input type="checkbox" id="replayAuto"><span>Start when PulseDeck opens</span></label>
+                            <span class="toolbar-spacer"></span>
+                            <button class="primary capture-button" id="captureBtn" disabled><span class="btn-icon">●</span><span id="captureBtnText">Save the last 60 s</span><kbd>Ctrl Alt R</kbd></button>
+                        </div>
+                    </div>
+
+                    <div class="replay-body">
+                        <div class="captures">
+                            <div class="section-heading"><h2>Captures <span class="count-pill" id="captureCount">0</span></h2></div>
+                            <div class="capture-list" id="captureList"></div>
+                            <p class="field-help capture-empty" id="captureEmpty">Nothing saved yet. Turn the buffer on, then press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>R</kbd> (or the Clip button on the overlay) right after something worth keeping happens.</p>
+                        </div>
+                        <div class="editor" id="editor" hidden>
+                            <div class="editor-head">
+                                <input id="captureName" class="capture-name" maxlength="80" aria-label="Capture name">
+                                <span class="editor-meta" id="captureMeta"></span>
+                                <button class="text-button danger" id="deleteCapture">Delete</button>
+                            </div>
+                            <div class="waveform-wrap" id="waveWrap">
+                                <canvas id="waveform" height="140"></canvas>
+                                <div class="selection" id="selection"></div>
+                                <div class="playhead" id="playhead" hidden></div>
+                            </div>
+                            <div class="trim-row">
+                                <label>Start <output id="trimStartValue">0:00.0</output><input id="trimStart" type="range" min="0" max="60" step="0.05" value="0"></label>
+                                <label>End <output id="trimEndValue">0:00.0</output><input id="trimEnd" type="range" min="0" max="60" step="0.05" value="60"></label>
+                            </div>
+                            <div class="editor-actions">
+                                <button class="secondary" id="previewBtn"><span class="btn-icon">▶</span><span>Play selection</span></button>
+                                <button class="secondary" id="snapBtn" title="Trim silence from both ends">Snap to sound</button>
+                                <button class="secondary" id="selectAllBtn">Whole capture</button>
+                                <span class="toolbar-spacer"></span>
+                                <span class="editor-meta" id="selectionMeta"></span>
+                                <button class="primary" id="addCaptureBtn"><span class="btn-icon">＋</span>Add to soundboard</button>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="field-help replay-note">Captures what plays through your default output (your headphones) — so anyone in your Discord or game chat, plus the game itself. Nothing is recorded until you turn the buffer on, and only the last stretch is kept in memory until you save it.</p>
+                </section>
+            </div>
+
+            <!-- Mixer rail -->
+            <aside class="mixer-panel">
+                <div class="section-heading"><h2>Mixer</h2><button class="text-button" id="refreshDevices" title="Allow microphone access and refresh audio devices">↻ Scan devices</button></div>
+
+                <ol class="checklist" id="checklist" aria-label="Setup progress">
+                    <li id="checkMic"><span class="check-mark"></span><div><strong>Microphone</strong><span id="checkMicText">Scan devices to choose one</span></div></li>
+                    <li id="checkCable"><span class="check-mark"></span><div><strong>Virtual cable</strong><span id="checkCableText">Install VB-CABLE, then pick CABLE Input</span></div></li>
+                    <li id="checkLive"><span class="check-mark"></span><div><strong>Broadcast</strong><span id="checkLiveText">Connect to go live in your apps</span></div></li>
+                </ol>
+                <button class="text-button guide-link" id="setupBtn">Setup guide & game / Discord tips →</button>
+
+                <label class="field-label" for="micDevice">Microphone</label>
+                <select id="micDevice"><option value="">Scan to choose a microphone</option><option value="none">Sounds only · no microphone</option></select>
+
+                <label class="field-label" for="outputDevice">Broadcast output</label>
+                <select id="outputDevice"><option value="">Choose a virtual cable</option></select>
+                <p class="field-help" id="outputHelp">Choose CABLE Input here. Choose CABLE Output as the microphone in your other apps.</p>
+
+                <button class="connect-button" id="connectBtn"><span class="connect-text">Connect audio</span><span class="connect-arrow">↗</span></button>
+
+                <div class="meter-label"><span>Mix level</span><span id="levelLabel">SILENT</span></div>
+                <div class="meter"><div id="levelFill"></div></div>
+
+                <div class="volume-block">
+                    <div class="volume-row"><label for="micVolume">Microphone</label><output id="micVolumeValue">100%</output></div>
+                    <input id="micVolume" type="range" min="0" max="150" value="100" aria-label="Microphone volume">
+                </div>
+                <div class="volume-block">
+                    <div class="volume-row"><label for="boardVolume">Soundboard</label><output id="boardVolumeValue">100%</output></div>
+                    <input id="boardVolume" type="range" min="0" max="200" value="100" aria-label="Soundboard volume">
+                    <div class="range-ends"><span>Quiet</span><span>Normal</span><span>Boost</span></div>
+                </div>
+                <label class="toggle-line" title="Measures each sound and evens out its loudness so quiet clips are heard and loud ones don't blast">
+                    <span><strong>Auto-level sounds</strong><small>Evens out quiet and loud clips</small></span>
+                    <span class="switch"><input type="checkbox" id="autoLevel" checked><span></span></span>
+                </label>
+
+                <div class="divider"></div>
+
+                <div class="section-heading"><h2>Headphones</h2><label class="switch"><input type="checkbox" id="monitorToggle" aria-label="Enable headphone monitoring"><span></span></label></div>
+                <select id="monitorDevice" aria-label="Headphone output"><option value="">Choose your headphones</option></select>
+                <label class="check-row"><input type="checkbox" id="monitorVoice"><span>Include my voice</span></label>
+                <div class="volume-block">
+                    <div class="volume-row"><label for="monitorVolume">Headphone level</label><output id="monitorVolumeValue">50%</output></div>
+                    <input id="monitorVolume" type="range" min="0" max="100" value="50" aria-label="Headphone monitoring volume">
+                </div>
+                <p class="field-help">Use real headphones here, never the cable, to avoid feedback.</p>
+            </aside>
+        </main>
+
+        <footer>
+            <span><i class="dot small"></i> Everything stays on this device</span>
+            <span id="engineStatus">Audio engine idle</span>
+            <button class="footer-version" id="versionBtn" title="Check for updates">PulseDeck · v0.5</button>
+        </footer>
+    </div>
+
+    <dialog id="editDialog">
+        <form id="editForm">
+            <div class="dialog-title">
+                <div><div class="eyebrow">Sound settings</div><h2 id="editTitle">Edit sound</h2></div>
+                <button type="button" class="icon-button" id="closeEdit" aria-label="Close">×</button>
+            </div>
+            <label for="editName">Name</label>
+            <input id="editName" maxlength="80" required autocomplete="off">
+
+            <label for="editHotkey">Global shortcut</label>
+            <div class="hotkey-field">
+                <input id="editHotkey" readonly placeholder="Click, then press Ctrl + Alt + a key">
+                <button type="button" class="text-button" id="clearHotkey">Clear</button>
+            </div>
+            <p class="field-help" id="editHotkeyHelp">Ctrl+Shift or Alt+Shift plus a letter, number, or F-key. Works while a game has focus.</p>
+
+            <div class="control-head"><label for="editVolume">Sound volume</label><output id="editVolumeValue">100%</output></div>
+            <input id="editVolume" type="range" min="0" max="150">
+            <p class="field-help" id="editLevelInfo">Level not measured yet — play the sound once.</p>
+
+            <span class="swatch-label">Pad color</span>
+            <div class="swatches" id="editColor" role="radiogroup" aria-label="Pad color">
+                <label class="swatch lime"><input type="radio" name="color" value="lime"><span></span><em>Lime</em></label>
+                <label class="swatch purple"><input type="radio" name="color" value="purple"><span></span><em>Violet</em></label>
+                <label class="swatch blue"><input type="radio" name="color" value="blue"><span></span><em>Blue</em></label>
+                <label class="swatch orange"><input type="radio" name="color" value="orange"><span></span><em>Orange</em></label>
+                <label class="swatch pink"><input type="radio" name="color" value="pink"><span></span><em>Pink</em></label>
+            </div>
+
+            <label class="toggle-row"><span><strong>Loop until stopped</strong><small>Great for ambience and music beds.</small></span><span class="switch"><input type="checkbox" id="editLoop"><span></span></span></label>
+
+            <div class="dialog-actions">
+                <button type="button" id="deleteSound" class="danger">Remove sound</button>
+                <button class="primary" type="submit">Save changes</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog id="guideDialog">
+        <div class="dialog-title">
+            <div><div class="eyebrow">Your voice + your sounds</div><h2>Connect PulseDeck to your apps</h2></div>
+            <button class="icon-button" id="closeGuide" aria-label="Close guide">×</button>
+        </div>
+        <div class="signal-flow"><span>Mic + sounds</span><b>→</b><span>PulseDeck</span><b>→</b><span>CABLE Input</span><b>→</b><span>CABLE Output</span><b>→</b><span>Your app</span></div>
+        <ol class="setup-steps">
+            <li><strong>Install a virtual audio cable once.</strong><p>VB-CABLE adds a playback device called <em>CABLE Input</em> and a microphone called <em>CABLE Output</em>. Run its installer as administrator and restart Windows if it asks.</p><button class="secondary" id="driverLink">Open the official VB-CABLE download ↗</button></li>
+            <li><strong>Choose your devices in the mixer.</strong><p>Click <em>Scan devices</em>, pick your real microphone, choose <em>CABLE Input</em> as the broadcast output, then click <em>Connect audio</em>.</p></li>
+            <li><strong>Pick <em>CABLE Output</em> as the microphone in each app.</strong><p>It's the one listed under recording/input devices (CABLE Input never shows up there). Keep PulseDeck running — minimizing is fine.</p></li>
+        </ol>
+        <table>
+            <thead><tr><th>App</th><th>Where to choose the microphone</th></tr></thead>
+            <tbody>
+                <tr><td>Discord</td><td>User Settings → Voice &amp; Video → Input Device</td></tr>
+                <tr><td>OBS Studio</td><td>Add an Audio Input Capture source → Device</td></tr>
+                <tr><td>Games / Steam chat</td><td>Audio or Voice settings → Input device / Microphone. Games with no picker use the Windows <em>default communications</em> recording device.</td></tr>
+                <tr><td>Zoom / Teams / browsers</td><td>Meeting or site audio settings → Microphone</td></tr>
+                <tr><td>Apps using Windows defaults</td><td>Windows Sound → More sound settings → Recording: set CABLE Output as Default Device and Default Communications Device</td></tr>
+            </tbody>
+        </table>
+        <div class="guide-note">
+            <strong>If some sounds don't come through in a game or Discord</strong>
+            <p>Voice chat is built to pass speech and reject everything else. Three settings in the <em>receiving</em> app decide whether your clips survive:</p>
+            <p><em>Noise suppression</em> (Krisp, RNNoise, "voice isolation") strips music and effects while letting speech through — turn it off. <em>Voice activity / input sensitivity</em> drops anything quieter than its threshold — set it to manual and lower it, or use push-to-talk and hold the key while a clip plays. <em>Automatic gain control</em> pumps levels unpredictably — turn it off too. Keep <em>Auto-level sounds</em> on in PulseDeck so quiet clips land at a consistent, speech-like loudness, and raise the Soundboard slider into the Boost range if you still need more.</p>
+            <p>Any app that accepts a Windows microphone can usually use the cable. A few games only read the Windows default device or reserve keyboard shortcuts; for those, set the Windows default recording device to CABLE Output and use the on-screen overlay instead of hotkeys.</p>
+        </div>
+        <div class="guide-note">
+            <strong>Replay buffer — grabbing what someone else said</strong>
+            <p>Turn the buffer on in the <em>Replay buffer</em> tab and PulseDeck keeps the last 30 s–3 min of everything that plays through your headphones (Discord, game chat, the game itself) in memory. When something happens, press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>R</kbd> or the overlay's <em>Clip</em> button to save it, then trim it and add it to the board. It hears your default Windows output, so keep Discord and the game on that device (not the cable). Tick <em>Start when PulseDeck opens</em> to have it always running. It records other people, so let your friends know.</p>
+        </div>
+        <div class="guide-note">
+            <strong>Using the game overlay</strong>
+            <p>Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>O</kbd> (or click <em>Overlay</em>) for a small always-on-top deck you can click while playing. Drag it by its title bar, resize from any edge, and set its transparency at the bottom. It stays above windowed and borderless-windowed games; games in exclusive fullscreen cover every overlay, so switch the game's display mode to <em>Borderless</em> or <em>Windowed fullscreen</em>.</p>
+        </div>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <div class="drop-overlay" id="dropOverlay" hidden><span>＋</span><h2>Drop sounds into your library</h2><p>Your files will be copied and saved locally.</p></div>
+    <script type="module" src="renderer.js"></script>
+</body>
+</html>

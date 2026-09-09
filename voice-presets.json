@@ -1,0 +1,30 @@
+[
+    {"id": "clean", "group": "pitch", "name": "Natural", "symbol": "◌", "description": "Your unprocessed voice."},
+    {"id": "deep", "group": "pitch", "name": "Deep", "symbol": "↓", "description": "A lower voice, shifted down five semitones."},
+    {"id": "chipmunk", "group": "pitch", "name": "Chipmunk", "symbol": "↑", "description": "A bright, high voice, shifted up seven semitones."},
+    {"id": "helium", "group": "pitch", "name": "Helium", "symbol": "⇈", "description": "A squeaky voice a full octave higher."},
+    {"id": "giant", "group": "pitch", "name": "Giant", "symbol": "⇊", "description": "A huge, slow-sounding voice a full octave lower."},
+
+    {"id": "monster", "group": "character", "name": "Monster", "symbol": "♜", "description": "A deep, rough voice with low pitch and distortion."},
+    {"id": "demon", "group": "character", "name": "Demon", "symbol": "♆", "description": "A growling, layered voice with dark modulation."},
+    {"id": "villain", "group": "character", "name": "Villain", "symbol": "♛", "description": "A smooth, menacing voice with a touch of room."},
+    {"id": "robot", "group": "character", "name": "Robot", "symbol": "▣", "description": "A mechanical voice with slow metallic modulation."},
+    {"id": "alien", "group": "character", "name": "Alien", "symbol": "◇", "description": "A strange, metallic voice with fast ring modulation."},
+    {"id": "cyborg", "group": "character", "name": "Cyborg", "symbol": "◈", "description": "Half human, half machine, slightly lowered."},
+    {"id": "ghost", "group": "character", "name": "Ghost", "symbol": "☁", "description": "A trembling, airy voice drifting in a long hall."},
+
+    {"id": "radio", "group": "device", "name": "Radio", "symbol": "▤", "description": "A narrow, gritty broadcast voice."},
+    {"id": "telephone", "group": "device", "name": "Telephone", "symbol": "☎", "description": "A thin, old telephone voice."},
+    {"id": "megaphone", "group": "device", "name": "Megaphone", "symbol": "◁", "description": "A crunchy loudspeaker voice with a short slapback."},
+    {"id": "eightbit", "group": "device", "name": "8-bit", "symbol": "▦", "description": "A crunchy, low-resolution retro game voice."},
+    {"id": "underwater", "group": "device", "name": "Underwater", "symbol": "≈", "description": "A muffled, wobbling voice from below the surface."},
+
+    {"id": "echo", "group": "space", "name": "Echo", "symbol": "↻", "description": "Short repeating echoes behind your voice."},
+    {"id": "cathedral", "group": "space", "name": "Cathedral", "symbol": "♧", "description": "A spacious voice with a long room reverb."},
+    {"id": "cave", "group": "space", "name": "Cave", "symbol": "◠", "description": "Dark echoes bouncing off damp stone walls."},
+    {"id": "stadium", "group": "space", "name": "Stadium", "symbol": "◎", "description": "A huge announcer voice with long, wide echoes."},
+    {"id": "chorus", "group": "space", "name": "Chorus", "symbol": "≋", "description": "A wider, doubled voice with gently moving copies."},
+    {"id": "harmony", "group": "space", "name": "Harmony", "symbol": "♫", "description": "Your voice with two higher harmony voices behind it."},
+    {"id": "wobble", "group": "space", "name": "Wobble", "symbol": "∿", "description": "A wavering voice with a fast pitch vibrato."},
+    {"id": "flutter", "group": "space", "name": "Flutter", "symbol": "▮", "description": "A rapidly pulsing, stuttering volume effect."}
+]

@@ -1,0 +1,46 @@
+# Builds the Windows installer + portable zip and publishes them as a GitHub Release
+# whenever a version tag (v1.2.3) is pushed. electron-updater reads the same release
+# to update installed copies automatically.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: node --test tests/library.test.cjs
+
+      - name: Build and publish installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional code signing (see DISTRIBUTION.md). Leave unset to ship unsigned.
+          # CSC_LINK: ${{ secrets.CSC_LINK }}
+          # CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: npx electron-builder --win --x64 --publish always
+
+      - name: Keep build output as a workflow artifact too
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulsedeck-windows
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/latest.yml

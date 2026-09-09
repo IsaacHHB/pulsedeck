@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
+    <title>PulseDeck overlay</title>
+    <link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+    <div class="bar">
+        <span class="title"><i id="liveDot"></i>PulseDeck<span class="grip">⋮⋮</span></span>
+        <span class="spacer"></span>
+        <button class="clip" id="clipBtn" title="Save the last minute of audio (Ctrl+Alt+R)" hidden>● Clip</button>
+        <button class="mute" id="muteBtn" title="Mute or unmute your microphone (Ctrl+Alt+M)">Mic</button>
+        <button class="stop" id="stopBtn" title="Stop every sound (Ctrl+Alt+Space)">■ Stop</button>
+        <button class="close" id="hideBtn" title="Hide overlay (Ctrl+Alt+O)">×</button>
+    </div>
+    <div class="grid" id="grid"></div>
+    <div class="foot">
+        <span id="status">Offline · connect audio in PulseDeck</span>
+        <label title="Overlay transparency">Opacity <input id="opacity" type="range" min="30" max="100" value="92"></label>
+    </div>
+    <script src="overlay.js"></script>
+</body>
+</html>
