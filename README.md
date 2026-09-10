@@ -6,7 +6,7 @@ A local Mac and Windows soundboard, microphone mixer, voice changer, and replay 
 
 ## What it does
 
-- **Soundboard** — drop in MP3/WAV/OGG/M4A/FLAC/WebM files, drag pads to reorder them, and play them with a click or a global shortcut (`Ctrl+Alt+1…9, 0` follow the first ten pads). Auto-leveling evens out quiet and loud clips so they all come through in voice chat.
+- **Soundboard** — drop in MP3/WAV/OGG/M4A/FLAC/WebM files, drag pads to reorder them, and play them with a click or a global shortcut (`Ctrl+Alt+1…9, 0` follow the first ten pads). Auto-leveling raises quiet clips while respecting their peaks. A lookahead limiter protects the mix when sounds overlap.
 - **Voice changer** — 25 presets (pitch shifts, monsters, robots, radios, rooms…) plus an extra-pitch slider and effect-strength blend. Preview yourself in your headphones before going live.
 - **Replay buffer** — keeps the last 30 s–3 min of everything you hear (friends on Discord, game chat, the game itself). Press `Ctrl+Alt+R` to save it, trim it on a waveform, and add it to the soundboard.
 - **Game overlay** — a small always-on-top deck (`Ctrl+Alt+O`) you can click while playing.

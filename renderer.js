@@ -222,7 +222,7 @@ function editSound(clip) {
     $('editVolume').value = clip.volume;
     $('editVolumeValue').textContent = clip.volume + '%';
     const loudness = engine.loudness.get(clip.id) ?? clip.loudness;
-    const gainDb = levelGainDb(loudness);
+    const gainDb = levelGainDb(loudness, engine.peaks.get(clip.id) ?? clip.peak);
     $('editLevelInfo').textContent = Number.isFinite(loudness)
         ? `Measured level ${loudness.toFixed(0)} dB. ${state.settings.autoLevel === false ? 'Auto-level is off.' : gainDb >= 0 ? `Auto-level adds +${gainDb.toFixed(0)} dB.` : `Auto-level trims ${gainDb.toFixed(0)} dB.`}`
         : 'Level not measured yet — play the sound once.';
@@ -805,8 +805,8 @@ engine.addEventListener('mute', event => {
 engine.addEventListener('analysis', event => run(async () => {
     const clip = state.clips.find(c => c.id === event.detail.id);
     if (!clip) return;
-    const changed = Math.abs(clip.duration - event.detail.duration) > 0.01 || !Number.isFinite(clip.loudness) || Math.abs(clip.loudness - event.detail.loudness) > 0.5;
-    if (changed) acceptLibrary(await window.deck.editSound(clip.id, { duration: event.detail.duration, loudness: event.detail.loudness }));
+    const changed = Math.abs(clip.duration - event.detail.duration) > 0.01 || !Number.isFinite(clip.peak) || !Number.isFinite(clip.loudness) || Math.abs(clip.loudness - event.detail.loudness) > 0.5;
+    if (changed) acceptLibrary(await window.deck.editSound(clip.id, { duration: event.detail.duration, loudness: event.detail.loudness, peak: event.detail.peak }));
 }));
 
 window.deck.onShortcut(action => {

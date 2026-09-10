@@ -34,15 +34,26 @@ export function measureLoudness(buffer) {
 }
 
 /** Makeup gain (dB) that brings a clip of the given loudness to the target. */
-export function levelGainDb(loudness) {
+export function levelGainDb(loudness, peak) {
     if (!Number.isFinite(loudness)) return 0;
-    return Math.max(MAX_CUT_DB, Math.min(MAX_BOOST_DB, LEVEL_TARGET_DB - loudness));
+    const target = Math.max(MAX_CUT_DB, Math.min(MAX_BOOST_DB, LEVEL_TARGET_DB - loudness));
+    // Leave 3 dB of peak headroom instead of forcing transient sounds into compression.
+    return Number.isFinite(peak) && peak > 0 ? Math.min(target, -3 - 20 * Math.log10(peak)) : target;
+}
+
+export function measurePeak(buffer) {
+    let peak = 0;
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+        for (const value of buffer.getChannelData(channel)) peak = Math.max(peak, Math.abs(value));
+    }
+    return peak;
 }
 
 export class AudioEngine extends EventTarget {
     constructor() {
         super();
         this.loudness = new Map();
+        this.peaks = new Map();
         this.context = null;
         this.stream = null;
         this.source = null;
@@ -62,9 +73,18 @@ export class AudioEngine extends EventTarget {
     emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
 
     async init() {
+        if (this.initializing) return this.initializing;
+        this.initializing = this.initialize();
+        try { await this.initializing; }
+        finally { this.initializing = null; }
+    }
+
+    async initialize() {
         if (this.context) { await this.context.resume(); return; }
         const ctx = new AudioContext({ latencyHint: 'interactive', sampleRate: 48000, sinkId: { type: 'none' } });
         if (!ctx.setSinkId) { await ctx.close(); throw new Error('This audio runtime cannot select an output device.'); }
+        try { await ctx.audioWorklet.addModule('./limiter-worklet.js'); }
+        catch (error) { await ctx.close(); throw error; }
         this.context = ctx;
         ctx.addEventListener('sinkchange', () => {
             if (this.connected && ctx.sinkId !== this.settings.outputId) {
@@ -75,17 +95,14 @@ export class AudioEngine extends EventTarget {
         this.board = ctx.createGain();
         this.mic = ctx.createGain();
         this.mix = ctx.createGain();
-        this.limiter = ctx.createDynamicsCompressor();
-        // A brick-wall style limiter just under full scale keeps the mix hot without clipping the cable.
-        this.limiter.threshold.value = -2; this.limiter.knee.value = 2; this.limiter.ratio.value = 20;
-        this.limiter.attack.value = 0.002; this.limiter.release.value = 0.1;
+        this.limiter = new AudioWorkletNode(ctx, 'peak-limiter', { outputChannelCount: [2] });
         this.board.connect(this.mix); this.mic.connect(this.mix); this.mix.connect(this.limiter);
         this.broadcast = ctx.createGain(); this.broadcast.gain.value = 0;
         this.limiter.connect(this.broadcast); this.broadcast.connect(ctx.destination);
         this.meter = ctx.createAnalyser(); this.meter.fftSize = 256; this.limiter.connect(this.meter);
         this.micMeter = ctx.createAnalyser(); this.micMeter.fftSize = 256; this.mic.connect(this.micMeter);
         this.monitorBus = ctx.createGain(); this.monitorBus.gain.value = 0;
-        this.monitorLimiter = ctx.createDynamicsCompressor(); this.monitorLimiter.threshold.value = -6; this.monitorLimiter.ratio.value = 20;
+        this.monitorLimiter = new AudioWorkletNode(ctx, 'peak-limiter', { outputChannelCount: [2], processorOptions: { ceiling: 10 ** (-3 / 20) } });
         this.monitorDestination = ctx.createMediaStreamDestination();
         this.monitorBus.connect(this.monitorLimiter); this.monitorLimiter.connect(this.monitorDestination);
         this.monitor.srcObject = this.monitorDestination.stream;
@@ -261,8 +278,10 @@ export class AudioEngine extends EventTarget {
         if (total + size(buffer) > maxBytes) throw new Error('Stop some playing sounds before loading another large clip.');
         this.buffers.set(clip.id, buffer);
         const loudness = measureLoudness(buffer);
+        const peak = measurePeak(buffer);
         this.loudness.set(clip.id, loudness);
-        this.emit('analysis', { id: clip.id, duration: buffer.duration, loudness });
+        this.peaks.set(clip.id, peak);
+        this.emit('analysis', { id: clip.id, duration: buffer.duration, loudness, peak });
         return buffer;
     }
 
@@ -274,7 +293,7 @@ export class AudioEngine extends EventTarget {
     /** Linear gain for a clip: its own volume, plus auto-leveling when enabled. */
     clipGain(clip) {
         const loudness = this.loudness.get(clip.id) ?? clip.loudness;
-        const level = this.settings.autoLevel === false ? 0 : levelGainDb(loudness);
+        const level = this.settings.autoLevel === false ? 0 : levelGainDb(loudness, this.peaks.get(clip.id) ?? clip.peak);
         return (clip.volume / 100) * dbToGain(level);
     }
 
@@ -331,7 +350,7 @@ export class AudioEngine extends EventTarget {
 
     stopAll() { for (const id of this.playing.keys()) this.stop(id); }
 
-    forget(id) { this.stop(id); this.buffers.delete(id); }
+    forget(id) { this.stop(id); this.buffers.delete(id); this.loudness.delete(id); this.peaks.delete(id); }
 
     /* ─── Replay buffer: rolling capture of system audio (what you hear) ─── */
 

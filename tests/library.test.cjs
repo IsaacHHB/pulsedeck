@@ -38,8 +38,10 @@ test('editing rejects positional-key takeover, reserved keys, and collisions; cl
   await assert.rejects(lib.edit(eleventh.id, { hotkey: 'Control+X' }), /Use Ctrl/);
   await lib.edit(eleventh.id, { hotkey: 'Control+Shift+Q' });
   await assert.rejects(lib.edit(twelfth.id, { hotkey: 'Control+Shift+Q' }), /another sound/);
-  await lib.edit(a.id, { volume: 999, name: ' Renamed ', loop: true });
+  await lib.edit(a.id, { volume: 999, name: ' Renamed ', loop: true, peak: 0.91 });
   assert.equal(a.volume, 150); assert.equal(a.name, 'Renamed'); assert.equal(a.loop, true);
+  const reload = new Library(lib.root); await reload.init();
+  assert.equal(reload.state.clips[0].peak, 0.91);
 });
 test('reordering moves pads and their positional shortcuts follow the new order', async () => {
   const { lib, source } = await fixture(); await lib.importFiles(Array(11).fill(source));

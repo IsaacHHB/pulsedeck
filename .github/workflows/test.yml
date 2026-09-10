@@ -20,7 +20,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Library tests
-        run: node --test tests/library.test.cjs tests/platform.test.cjs tests/replay-buffer.test.cjs
+        run: node --test tests/library.test.cjs tests/platform.test.cjs tests/replay-buffer.test.cjs tests/limiter.test.cjs
       - name: Voice DSP and desktop integration tests (Electron under Xvfb)
         if: runner.os == 'Linux'
         run: xvfb-run -a node tests/voice-effects.cjs && xvfb-run -a node tests/integration.cjs

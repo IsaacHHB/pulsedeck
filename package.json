@@ -1,7 +1,7 @@
 {
     "name": "pulsedeck",
     "productName": "PulseDeck",
-    "version": "0.6.1",
+    "version": "0.6.2",
     "description": "A local soundboard, microphone mixer, voice changer, and replay buffer for Mac and Windows",
     "main": "main.cjs",
     "author": "Isaac Hollow Horn Bear",
@@ -13,7 +13,7 @@
     },
     "scripts": {
         "start": "electron .",
-        "test": "node --test tests/library.test.cjs tests/platform.test.cjs tests/replay-buffer.test.cjs && node tests/voice-effects.cjs && node tests/integration.cjs",
+        "test": "node --test tests/library.test.cjs tests/platform.test.cjs tests/replay-buffer.test.cjs tests/limiter.test.cjs && node tests/voice-effects.cjs && node tests/integration.cjs",
         "icon": "node make-icon.cjs",
         "dist": "node make-icon.cjs && electron-builder --win",
         "dist:publish": "electron-builder --win --publish always",

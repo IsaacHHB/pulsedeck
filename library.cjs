@@ -23,7 +23,7 @@ class Library {
     try {
       const saved = JSON.parse(await fs.readFile(path.join(this.root, 'library.json'), 'utf8'));
       if (!Array.isArray(saved.clips)) throw new Error('Invalid clip library');
-      this.state.clips = saved.clips.filter(c => typeof c.id === 'string' && /^[a-f0-9-]{36}\.(mp3|wav|ogg|m4a|flac|webm)$/.test(c.file)).slice(0, 120).map(c => ({ ...c, name: String(c.name).slice(0, 80), volume: clamp(c.volume, 0, 150, 100), color: COLORS.includes(c.color) ? c.color : 'lime', loop: Boolean(c.loop), hotkey: shortcut(c.hotkey), duration: clamp(c.duration, 0, 86400, 0), loudness: Number.isFinite(Number(c.loudness)) ? clamp(c.loudness, -60, 0, null) : null }));
+      this.state.clips = saved.clips.filter(c => typeof c.id === 'string' && /^[a-f0-9-]{36}\.(mp3|wav|ogg|m4a|flac|webm)$/.test(c.file)).slice(0, 120).map(c => ({ ...c, name: String(c.name).slice(0, 80), volume: clamp(c.volume, 0, 150, 100), color: COLORS.includes(c.color) ? c.color : 'lime', loop: Boolean(c.loop), hotkey: shortcut(c.hotkey), peak: Number.isFinite(c.peak) ? clamp(c.peak, 0, 1000, null) : null, duration: clamp(c.duration, 0, 86400, 0), loudness: Number.isFinite(Number(c.loudness)) ? clamp(c.loudness, -60, 0, null) : null }));
       this.state.captures = (Array.isArray(saved.captures) ? saved.captures : []).filter(c => typeof c.id === 'string' && /^[a-f0-9-]{36}\.wav$/.test(c.file)).slice(0, MAX_CAPTURES).map(c => ({ id: c.id, file: c.file, name: String(c.name || 'Capture').slice(0, 80), duration: clamp(c.duration, 0, 600, 0), createdAt: clamp(c.createdAt, 0, 1e13, 0) }));
       this.updateSettings(saved.settings || {});
       this.assignSlots();
@@ -93,7 +93,7 @@ class Library {
         const stat = await fs.stat(source);
         if (!stat.isFile() || stat.size === 0 || stat.size > 30 * 1024 * 1024) throw new Error('Each file must be between 1 byte and 30 MB.');
         const id = randomUUID();
-        const clip = { id, file: id + ext, name: path.basename(source, ext).slice(0, 80), color: COLORS[this.state.clips.length % COLORS.length], volume: 100, loop: false, hotkey: '', duration: 0, loudness: null };
+        const clip = { id, file: id + ext, name: path.basename(source, ext).slice(0, 80), color: COLORS[this.state.clips.length % COLORS.length], volume: 100, loop: false, hotkey: '', duration: 0, loudness: null, peak: null };
         await fs.copyFile(source, path.join(this.root, 'clips', clip.file));
         this.state.clips.push(clip); added.push(clip.id);
         this.assignSlots();
@@ -109,7 +109,7 @@ class Library {
     const data = Buffer.from(bytes);
     if (!data.length || data.length > 30 * 1024 * 1024) throw new Error('The sound must be between 1 byte and 30 MB.');
     const id = randomUUID();
-    const clip = { id, file: id + ext, name: String(name || 'Capture').trim().slice(0, 80) || 'Capture', color: COLORS[this.state.clips.length % COLORS.length], volume: 100, loop: false, hotkey: '', duration: 0, loudness: null };
+    const clip = { id, file: id + ext, name: String(name || 'Capture').trim().slice(0, 80) || 'Capture', color: COLORS[this.state.clips.length % COLORS.length], volume: 100, loop: false, hotkey: '', duration: 0, loudness: null, peak: null };
     await fs.writeFile(path.join(this.root, 'clips', clip.file), data);
     this.state.clips.push(clip);
     this.assignSlots();
@@ -172,6 +172,7 @@ class Library {
     if ('volume' in patch) clip.volume = clamp(patch.volume, 0, 150, 100);
     if ('loop' in patch) clip.loop = Boolean(patch.loop);
     if ('duration' in patch) clip.duration = clamp(patch.duration, 0, 86400, 0);
+    if ('peak' in patch) clip.peak = Number.isFinite(patch.peak) ? clamp(patch.peak, 0, 1000, null) : null;
     if ('loudness' in patch) clip.loudness = Number.isFinite(Number(patch.loudness)) ? clamp(patch.loudness, -60, 0, null) : null;
     await this.commit(); return this.snapshot();
   }

@@ -1,3 +1,10 @@
+# PulseDeck 0.6.2
+
+- Automatic sound leveling now accounts for each clip's highest peak. Loud transients are no longer boosted into overload just to reach the average-volume target.
+- Replaced the compressor used as an output limiter with a linked-stereo, 5 ms lookahead peak limiter for broadcast and headphone monitoring. Ordinary audio retains its pitch and speed; overlapping sounds and voice effects stay below the output ceiling.
+- Audio initialization is shared across simultaneous requests, preventing duplicate engines while the limiter loads.
+- Added waveform-preservation and overload tests, plus an opt-in real BlackHole test of MP3 pitch and duration at 44.1 and 48 kHz source rates.
+
 # PulseDeck 0.6.1
 
 - Mac shortcuts now use Command + Option, including the soundboard, mute, stop, save replay, and overlay. Existing library shortcuts keep their portable storage format.

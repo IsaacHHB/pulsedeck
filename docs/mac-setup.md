@@ -46,3 +46,12 @@ Personal builds use manual updates. A public Mac release requires Developer ID s
 - [Zoom professional audio settings](https://support.zoom.com/hc/en/article?id=zm_kb&sysparm_article=KB0059985)
 
 For a real 60-second replay check, run `node tests/mac-replay-real.cjs` on a quiet Mac. This opt-in test plays two quiet tones separated by silence, saves a full minute, verifies that older audio was discarded, trims to a five-second soundboard clip, and checks saving from the main button, shortcut action, and overlay. It uses a separate test library.
+
+
+## Distorted or unusually deep sound
+
+Version 0.6.2 fixes a confirmed overload problem in automatic leveling. The previous compressor could let peaks above full scale through at the standard 100% board level. Peak-aware leveling and a lookahead limiter now protect the outgoing mix. The limiter introduces a fixed 5 ms delay; it does not change playback rate or pitch.
+
+For Zoom, keep Original sound for musicians enabled during the meeting. Voice isolation and noise suppression can still alter soundboard audio after it leaves PulseDeck. In games, disable voice noise suppression and automatic gain control when those options are available. PulseDeck cannot change another app's audio filters.
+
+For a real outgoing-audio test, run `node tests/mac-broadcast-real.cjs` with BlackHole installed. It uses a separate test library, plays generated 44.1 and 48 kHz MP3s into BlackHole, and measures the received pitch, duration, and peak level. Run it when no meeting is listening to BlackHole.
