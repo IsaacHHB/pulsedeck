@@ -16,8 +16,9 @@ class RingRecorder extends AudioWorkletProcessor {
         };
     }
 
-    process(inputs) {
-        let frames = 0;
+    process(inputs, outputs) {
+        // The clock must keep advancing through silence or disconnected inputs.
+        let frames = outputs?.[0]?.[0]?.length || 0;
         for (const input of inputs) if (input.length) { frames = input[0].length; break; }
         if (!frames) return true;
         for (let i = 0; i < frames; i++) {

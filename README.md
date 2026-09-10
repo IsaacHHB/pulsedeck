@@ -1,6 +1,6 @@
 # PulseDeck
 
-A local Windows soundboard, microphone mixer, voice changer, and replay buffer — for Discord, game chat, streaming, and calls. No accounts, no uploads, no telemetry: everything stays on your PC.
+A local Mac and Windows soundboard, microphone mixer, voice changer, and replay buffer — for Discord, game chat, streaming, and calls. No accounts, no uploads, no telemetry: everything stays on your computer.
 
 ![PulseDeck soundboard](docs/soundboard.png)
 
@@ -12,9 +12,25 @@ A local Windows soundboard, microphone mixer, voice changer, and replay buffer �
 - **Game overlay** — a small always-on-top deck (`Ctrl+Alt+O`) you can click while playing.
 - **Mixer** — separate microphone and soundboard levels, mute, headphone monitoring, and a setup checklist.
 
-PulseDeck sends your mixed voice and sounds into a **virtual audio cable** ([VB-CABLE](https://vb-audio.com/Cable/), free), and any app that accepts a Windows microphone — Discord, OBS, Steam, games, Zoom, browsers — picks it up as `CABLE Output`.
+On Windows, PulseDeck sends your mixed voice and sounds into a **virtual audio cable** ([VB-CABLE](https://vb-audio.com/Cable/), free), and any app that accepts a Windows microphone — Discord, OBS, Steam, games, Zoom, browsers — picks it up as `CABLE Output`.
 
-## Install
+## Install on Mac
+
+Requires macOS 14.2 or later. Apple silicon is the primary tested Mac target.
+
+1. Open the Mac `.dmg` and drag PulseDeck into Applications.
+2. Install [BlackHole 2ch](https://existential.audio/blackhole/) once. Complete the administrator prompt and restart when instructed.
+3. Open PulseDeck, click **Scan devices**, and allow microphone access. Choose your physical microphone and **BlackHole 2ch** as the broadcast output. Select physical headphones for monitoring.
+4. Click **Connect audio**. In Zoom or another calling app, select **BlackHole 2ch** as its microphone and your headphones as its speaker output.
+5. In Zoom, choose **Original sound for musicians** and enable it in the meeting so effects and music are not filtered out.
+
+The replay buffer requests Mac system-audio capture access separately. Allow PulseDeck under **System Settings → Privacy & Security → Screen & System Audio Recording** if prompted. The buffer keeps audio in memory until you save a clip; it does not save screen video. Use the packaged app for capture testing, because running from a terminal can attribute permissions to the terminal instead.
+
+Mac shortcuts use **Command + Option** instead of Control + Alt on Windows. Closing the main window leaves PulseDeck and its audio running; click its Dock icon to reopen, or use **PulseDeck → Quit PulseDeck** to stop it. The overlay is configured to appear across desktops and full-screen spaces.
+
+Local Mac builds use ad-hoc signing and manual updates. Developer ID signed, notarized releases support automatic updates. See [Mac setup and verification](docs/mac-setup.md).
+
+## Install on Windows
 
 Download **PulseDeck-Setup.exe** from the [latest release](../../releases/latest) and run it. Installed copies check for updates automatically and offer a one-click restart when a new version is ready.
 
@@ -26,13 +42,16 @@ Then follow the in-app **Setup guide**: install VB-CABLE once, pick your mic and
 
 ## Develop
 
-Requires Node.js 22+.
+Requires Node.js 22+; Mac packaging requires a Mac with Xcode command-line tools.
 
 ```bash
 npm ci          # install dependencies (downloads Electron)
 npm start       # run from source
 npm test        # library tests + voice DSP checks + desktop integration tests
 npm run dist    # build the Windows installer and portable zip into dist/
+npm run dist:mac:local # build a personal Apple silicon DMG and ZIP on a Mac
+npm run dist:mac       # build Mac distribution packages using configured signing
+npm run test:package   # launch and inspect the packaged app
 ```
 
 The desktop tests drive the real app with Playwright; on Linux run them under `xvfb-run -a`. Audio devices are simulated in tests; the mixing, DSP, capture lifecycle, persistence, overlay, and UI are real.

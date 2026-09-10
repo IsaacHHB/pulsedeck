@@ -34,6 +34,7 @@ test('editing rejects positional-key takeover, reserved keys, and collisions; cl
   await assert.rejects(lib.edit(b.id, { hotkey: 'Control+Shift+Q' }), /first ten/);
   await assert.rejects(lib.edit(eleventh.id, { hotkey: 'Control+Alt+M' }), /reserved/);
   await assert.rejects(lib.edit(eleventh.id, { hotkey: 'Control+Alt+O' }), /reserved/);
+  await assert.rejects(lib.edit(eleventh.id, { hotkey: 'Control+Alt+R' }), /reserved/);
   await assert.rejects(lib.edit(eleventh.id, { hotkey: 'Control+X' }), /Use Ctrl/);
   await lib.edit(eleventh.id, { hotkey: 'Control+Shift+Q' });
   await assert.rejects(lib.edit(twelfth.id, { hotkey: 'Control+Shift+Q' }), /another sound/);

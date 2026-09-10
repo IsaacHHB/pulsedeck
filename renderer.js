@@ -1,6 +1,10 @@
 import { AudioEngine, levelGainDb } from './audio.js';
 import { PRESETS, GROUPS } from './voice-effects.js';
 import { encodeWav, waveformPeaks, audibleRange } from './wav.js';
+import { isMac, cableOutputName, cableInputName, driverName, microphoneHelp, isCable, isVirtual, cableReturn, isFeedbackRoute, prettyKey, shortcutFromEvent } from './platform.js';
+import { configureMacUI } from './mac-ui.js';
+
+configureMacUI();
 
 const $ = id => document.getElementById(id);
 const engine = new AudioEngine();
@@ -8,16 +12,13 @@ let state = { clips: [], captures: [], settings: {} };
 let filter = 'all', editing = null, devices = [], toastTimer, saveTimer, effectTimer, busy = false, view = 'board', dragId = null;
 const SLOTS = 10;
 
-const prettyKey = key => key.replaceAll('Control', 'Ctrl').replaceAll('+', ' + ');
 const duration = value => value ? `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}` : 'Ready';
 const presetOf = id => PRESETS.find(preset => preset.id === id) || PRESETS[0];
 const deviceLabel = id => devices.find(d => d.deviceId === id)?.label || '';
-const isCable = label => /cable input/i.test(label || '');
-const isVirtual = label => /cable|voicemeeter|virtual/i.test(label || '');
 
 function toast(message, error = false) {
     clearTimeout(toastTimer);
-    $('toast').textContent = message;
+    $('toast').textContent = isMac ? message.replaceAll('Ctrl', 'Cmd').replaceAll('Alt', 'Option') : message;
     $('toast').classList.toggle('error', error);
     $('toast').hidden = false;
     toastTimer = setTimeout(() => { $('toast').hidden = true; }, error ? 10000 : 5000);
@@ -216,8 +217,8 @@ function editSound(clip) {
     $('editHotkey').disabled = positional;
     $('clearHotkey').hidden = positional;
     $('editHotkeyHelp').textContent = positional
-        ? `Pad ${position + 1} always uses ${prettyKey(clip.hotkey)}. Drag pads on the soundboard to change the order — the first ten get Ctrl+Alt+1…9 and 0.`
-        : 'Ctrl+Shift or Alt+Shift plus a letter, number, or F-key (Ctrl+Alt+0–9 are taken by the first ten pads). Works while a game has focus.';
+        ? `Pad ${position + 1} always uses ${prettyKey(clip.hotkey)}. Drag pads on the soundboard to change the order . The first ten follow pad order.`
+        : `${prettyKey('Control+Shift')} or ${prettyKey('Alt+Shift')} with a letter, number, or F-key. Works while another app has focus.`;
     $('editVolume').value = clip.volume;
     $('editVolumeValue').textContent = clip.volume + '%';
     const loudness = engine.loudness.get(clip.id) ?? clip.loudness;
@@ -249,10 +250,8 @@ $('editHotkey').addEventListener('keydown', event => {
     if (event.key === 'Tab') return;
     event.preventDefault();
     if (['Backspace', 'Delete'].includes(event.key)) { event.target.value = ''; event.target.dataset.key = ''; return; }
-    const mods = [event.ctrlKey ? 'Control' : '', event.altKey ? 'Alt' : '', event.shiftKey ? 'Shift' : ''].filter(Boolean);
-    const key = event.key.toUpperCase();
-    if (mods.length !== 2 || !/^([A-Z0-9]|F([1-9]|1[0-9]|2[0-4]))$/.test(key)) return;
-    const value = [...mods, key].join('+');
+    const value = shortcutFromEvent(event);
+    if (!value) return;
     event.target.dataset.key = value;
     event.target.value = prettyKey(value);
 });
@@ -334,8 +333,11 @@ function deviceOptions(element, kind, saved, placeholder, soundsOnly = false) {
 
 async function refreshDevices(requestAccess = false) {
     if (requestAccess) {
-        try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false }); stream.getTracks().forEach(track => track.stop()); }
-        catch { toast('Microphone access was unavailable. You can still select Sounds only. Check Windows microphone privacy settings if you want live voice.', true); }
+        try {
+            if (!await window.deck.requestMicrophone()) throw new Error(microphoneHelp);
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false }); stream.getTracks().forEach(track => track.stop());
+        }
+        catch { toast(`Microphone access was unavailable. You can still select Sounds only. ${microphoneHelp}`, true); }
     }
     devices = await navigator.mediaDevices.enumerateDevices();
     const concrete = devices.filter(d => !['default', 'communications'].includes(d.deviceId));
@@ -365,9 +367,9 @@ function routeHelp() {
     const output = devices.find(d => d.deviceId === state.settings.outputId && d.kind === 'audiooutput');
     const cable = isCable(output?.label);
     $('outputHelp').textContent = cable
-        ? 'In Discord, OBS, games, or calls, choose CABLE Output as the microphone.'
+        ? `In Zoom, Discord, OBS, or calls, choose ${cableReturn(output.label)} as the microphone. Keep meeting playback on your headphones.`
         : output ? 'For other apps to hear this mix, choose a virtual cable here. A physical speaker output only plays locally.'
-        : 'Choose CABLE Input here. Choose CABLE Output as the microphone in your other apps.';
+        : `Choose ${cableOutputName} here. Choose ${cableInputName} as the microphone in your other apps.`;
 }
 
 function checklist() {
@@ -377,8 +379,8 @@ function checklist() {
     const set = (id, status, text) => { $(id).className = status; $(id + 'Text').textContent = text; };
     set('checkMic', micOk ? 'done' : '', micId === 'none' ? 'Sounds only, no live voice' : micOk ? deviceLabel(micId) : 'Scan devices to choose one');
     set('checkCable', output && isCable(output.label) ? 'done' : output ? 'warn' : hasCableDevice ? 'warn' : '',
-        output && isCable(output.label) ? output.label : output ? `${output.label} · not a virtual cable` : hasCableDevice ? 'CABLE Input found · select it below' : 'Install VB-CABLE, then pick CABLE Input');
-    set('checkLive', engine.connected ? 'done' : '', engine.connected ? 'Live · choose CABLE Output as the mic in your apps' : 'Connect to go live in your apps');
+        output && isCable(output.label) ? output.label : output ? `${output.label} · not a virtual cable` : hasCableDevice ? 'Virtual cable found · select it below' : `Install ${driverName}, then pick ${cableOutputName}`);
+    set('checkLive', engine.connected ? 'done' : '', engine.connected ? `Live · choose ${cableReturn(output?.label)} as the mic in your apps` : 'Connect to go live in your apps');
 }
 
 function connectionUI() {
@@ -402,7 +404,7 @@ function connectionUI() {
     $('hearBtn').querySelector('.btn-icon').textContent = $('hearBtn').getAttribute('aria-pressed') === 'true' ? '◉' : '◯';
     checklist();
     pushOverlay();
-    run(() => window.deck.setAudioActive(live || engine.monitoring || engine.previewing));
+    run(() => window.deck.setAudioActive(live || engine.monitoring || engine.previewing || Boolean(engine.replay)));
 }
 
 /* ─── Mixer controls ───────────────────────────────────────── */
@@ -410,12 +412,13 @@ $('connectBtn').onclick = () => run(async () => {
     if (busy) return;
     if (engine.connected) { engine.disconnect(); return; }
     const mic = deviceLabel(state.settings.micId), output = deviceLabel(state.settings.outputId);
-    if (/cable output/i.test(mic) && isCable(output)) throw new Error('Select your physical microphone. Using CABLE Output here would feed the mix back into itself.');
+    if (isFeedbackRoute(mic, output)) throw new Error('Select your physical microphone. Using the virtual cable as your microphone would feed the mix back into itself.');
     if (engine.monitoring && state.settings.monitorId === state.settings.outputId) throw new Error('Choose separate outputs for broadcast and headphones.');
     busy = true; $('connectBtn').disabled = true; connectionUI();
     try {
         await engine.connect(state.settings);
-        await window.deck.saveSettings(state.settings);
+        const { overlay, ...settings } = state.settings;
+        await window.deck.saveSettings(settings);
     } finally {
         busy = false; $('connectBtn').disabled = false; connectionUI();
     }
@@ -548,7 +551,7 @@ function replayUI(detail) {
     const seconds = Number($('replaySeconds').value) || 60;
     $('replayTitle').textContent = armed ? `Keeping the last ${seconds} seconds` : 'Replay buffer is off';
     $('replayHint').textContent = armed
-        ? 'Listening to everything you hear. Press Ctrl+Alt+R any time — even in a game — to save it.'
+        ? `Listening to your computer’s audio. Press ${prettyKey('Control+Alt+R')} to save it.`
         : 'Turn it on to keep the last minute of everything you hear — Discord, game chat, anyone\'s voice — ready to save.';
     $('captureBtn').disabled = !armed;
     $('captureBtnText').textContent = `Save the last ${seconds} s`;
@@ -723,10 +726,10 @@ $('deleteCapture').onclick = () => run(async () => {
 });
 $('replayNav').onclick = () => showView('replay');
 window.addEventListener('resize', drawWaveform);
-engine.addEventListener('replay', event => replayUI(event.detail));
+engine.addEventListener('replay', event => { replayUI(event.detail); connectionUI(); });
 
 /* ─── Updates ──────────────────────────────────────────────── */
-let appVersion = '';
+let appVersion = '', updateCountdown = 0;
 function updateUI(state) {
     const button = $('updateBtn'), version = $('versionBtn');
     button.hidden = state.status !== 'ready';
@@ -737,21 +740,24 @@ function updateUI(state) {
         downloading: `PulseDeck · v${appVersion} · downloading v${state.version || ''}${state.percent ? ` ${state.percent}%` : ''}`,
         ready: `PulseDeck · v${appVersion} · v${state.version} ready`,
         latest: `PulseDeck · v${appVersion} · up to date`,
+        manual: `PulseDeck · v${appVersion} · manual updates`,
         error: `PulseDeck · v${appVersion} · update check failed`
     }[state.status] || `PulseDeck · v${appVersion}`;
-    version.title = state.status === 'error' ? `${state.message || 'Could not reach the update server.'} Click to try again.` : 'Check for updates';
+    version.title = state.status === 'error' ? `${state.message || 'Could not reach the update server.'} Click to try again.` : state.status === 'manual' ? state.message : 'Check for updates';
 }
 $('updateBtn').onclick = () => run(async () => {
+    const token = ++updateCountdown;
     if (engine.connected) {
         const seconds = 5;
-        toast(`Updating in ${seconds} seconds — your broadcast will stop. Press Ctrl+Alt+Space to cancel.`);
+        toast(`Updating in ${seconds} seconds. Your broadcast will stop. Press ${prettyKey('Control+Alt+Space')} to cancel.`);
         await new Promise(resolve => setTimeout(resolve, seconds * 1000));
     }
+    if (token !== updateCountdown) return;
     await window.deck.installUpdate();
 });
 $('versionBtn').onclick = () => run(async () => {
     const state = await window.deck.checkForUpdates();
-    if (state.status === 'idle') { toast('This portable copy does not update itself — opening the download page so you can grab the latest version.'); await window.deck.openReleases(); }
+    if (['idle', 'manual'].includes(state.status)) { toast(state.message || 'This copy uses manual updates. Opening the download page.'); await window.deck.openReleases(); }
 });
 window.deck.onUpdate(updateUI);
 
@@ -793,7 +799,7 @@ engine.addEventListener('mute', event => {
     $('muteBtn').classList.toggle('muted', event.detail);
     $('muteBtn').querySelector('.mute-text').textContent = event.detail ? 'Mic muted' : 'Mic live';
     $('muteBtn').setAttribute('aria-pressed', String(event.detail));
-    $('muteBtn').title = event.detail ? 'Unmute microphone (Ctrl+Alt+M)' : 'Mute microphone (Ctrl+Alt+M)';
+    $('muteBtn').title = `${event.detail ? 'Unmute' : 'Mute'} microphone (${prettyKey('Control+Alt+M')})`;
     pushOverlay();
 });
 engine.addEventListener('analysis', event => run(async () => {
@@ -804,7 +810,7 @@ engine.addEventListener('analysis', event => run(async () => {
 }));
 
 window.deck.onShortcut(action => {
-    if (action.type === 'stop') engine.stopAll();
+    if (action.type === 'stop') { updateCountdown++; engine.stopAll(); }
     else if (action.type === 'capture') run(() => saveCapture());
     else if (!$('editDialog').open && !$('guideDialog').open) {
         if (action.type === 'mute') engine.toggleMute();

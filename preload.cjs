@@ -1,5 +1,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('deck', {
+    platform: process.platform,
+    requestMicrophone: () => ipcRenderer.invoke('audio:microphone'),
     getLibrary: () => ipcRenderer.invoke('library:get'),
     importSounds: () => ipcRenderer.invoke('library:import'),
     dropSounds: files => ipcRenderer.invoke('library:drop', Array.from(files, file => webUtils.getPathForFile(file))),

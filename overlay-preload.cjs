@@ -1,5 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('overlay', {
+    platform: process.platform,
     getState: () => ipcRenderer.invoke('overlay:get'),
     onState: callback => ipcRenderer.on('state', (_event, state) => callback(state)),
     play: id => ipcRenderer.invoke('overlay:play', id),

@@ -1,3 +1,18 @@
+# PulseDeck 0.6.1
+
+- Mac shortcuts now use Command + Option, including the soundboard, mute, stop, save replay, and overlay. Existing library shortcuts keep their portable storage format.
+- Replay continues advancing through silent or missing input frames, so old sounds age out of the last 60 seconds.
+- Replay capture now keeps the app awake even when the microphone mixer is disconnected.
+
+# PulseDeck 0.6.0
+
+- Mac support with BlackHole audio routing, Mac setup instructions, microphone permissions, and native system-audio capture for replay.
+- Command + Option shortcut labels and physical-key handling for Option-modified characters.
+- Floating overlay across Mac desktops and full-screen spaces. Closing the main window keeps audio running; the Dock reopens it.
+- Mac DMG/ZIP packaging, personal builds, and a signed/notarized release path for automatic updates.
+- Feedback checks recognize BlackHole and keep it out of headphone monitoring.
+- Replay's global shortcut is reserved so a custom sound cannot take it over.
+
 # PulseDeck v0.5 — what's new
 
 ## Replay buffer: grab what anyone said

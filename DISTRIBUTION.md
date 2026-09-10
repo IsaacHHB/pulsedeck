@@ -81,3 +81,24 @@ Signing also lets electron-updater verify that an update really came from you; w
 3. `npm version 0.6.0 && git push --follow-tags` — the app reads its version from `package.json`, nothing else to bump.
 4. Wait for the Release workflow, then edit the GitHub Release to add notes.
 5. Installed users update themselves; the website button already points at the newest release.
+
+
+## Mac releases
+
+The shared project builds Windows and macOS. Mac releases require macOS 14.2 or later and use architecture-specific DMG and ZIP files. ZIP files and `latest-mac.yml` are required by the Mac updater.
+
+For personal Apple silicon builds, run `npm run dist:mac:local`. This uses ad-hoc signing with local entitlements and skips notarization. The app detects that it lacks a Developer ID signature and offers manual downloads instead of attempting an unsupported automatic update.
+
+For public releases, configure these GitHub Actions secrets:
+
+- `MAC_CSC_LINK`: base64-encoded Developer ID Application certificate in P12 format, or a supported certificate URL.
+- `MAC_CSC_KEY_PASSWORD`: password for that P12 file.
+- `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`: Apple notarization credentials.
+
+The Mac release job builds both arm64 and x64, signs and notarizes with the supplied credentials, and publishes the packages and update metadata alongside Windows. Without the signing and notarization credentials, it only uploads a personal Apple silicon build as a workflow artifact. It does not publish that local build as an update.
+
+Mac data lives in `~/Library/Application Support/PulseDeck/PulseDeck Data`. Development builds keep the existing project-local data folder. Audio device selections are machine-specific and must be selected again if a library is copied from Windows.
+
+The bundle declares microphone and system-audio capture usage descriptions. Keep these keys and the audio-input/JIT entitlements when changing packaging. The local ad-hoc build additionally disables library validation, because it has no Developer ID team signature. Signed distribution builds use the separate production entitlement file.
+
+Before publishing, run `npm test`, `npm run test:package`, and the real-device checklist in `docs/mac-setup.md`. Mocked device tests do not establish that a remote Zoom participant can hear the mix. BlackHole is installed separately from its official distributor and is not bundled inside PulseDeck.

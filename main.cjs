@@ -1,9 +1,11 @@
-const { app, BrowserWindow, ipcMain, dialog, globalShortcut, shell, session, powerSaveBlocker, screen, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, globalShortcut, shell, session, powerSaveBlocker, screen, desktopCapturer, systemPreferences } = require('electron');
+const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const { Library } = require('./library.cjs');
 const pkg = require('./package.json');
+const isMac = process.platform === 'darwin';
 const RELEASES_URL = `${(pkg.repository?.url || 'https://github.com/IsaacHHB/pulsedeck').replace(/\.git$/, '')}/releases/latest`;
 
 /**
@@ -15,6 +17,7 @@ const RELEASES_URL = `${(pkg.repository?.url || 'https://github.com/IsaacHHB/pul
 function resolveDataRoot() {
     if (process.env.PULSEDECK_DATA) return process.env.PULSEDECK_DATA;
     if (!app.isPackaged) return path.join(__dirname, 'PulseDeck Data');
+    if (isMac) return path.join(app.getPath('appData'), 'PulseDeck', 'PulseDeck Data');
     const portable = path.join(path.dirname(app.getPath('exe')), 'PulseDeck Data');
     try {
         if (fs.existsSync(portable)) { fs.accessSync(portable, fs.constants.W_OK); return portable; }
@@ -43,7 +46,7 @@ function hotkeys() {
     globalShortcut.unregisterAll();
     const failed = [];
     const register = (key, action) => {
-        try { if (!globalShortcut.register(key, action)) failed.push(key); }
+        try { if (!globalShortcut.register(isMac ? key.replace('Control', 'Command') : key, action)) failed.push(key); }
         catch { failed.push(key); }
     };
     const send = action => () => win?.webContents.send('shortcut', action);
@@ -96,6 +99,7 @@ function createOverlay() {
         webPreferences: { preload: path.join(__dirname, 'overlay-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }
     });
     overlay.setAlwaysOnTop(true, 'screen-saver');
+    if (isMac) overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     overlay.setOpacity(library.state.settings.overlay?.opacity ?? 0.92);
     overlay.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     overlay.webContents.on('will-navigate', event => event.preventDefault());
@@ -105,6 +109,7 @@ function createOverlay() {
     overlay.on('show', () => win?.webContents.send('overlay-visible', true));
     overlay.on('hide', () => { overlayShown = false; win?.webContents.send('overlay-visible', false); });
     overlay.loadURL(overlayURL);
+    saveOverlayBounds();
 }
 
 function toggleOverlay(show) {
@@ -130,6 +135,15 @@ function setUpdateState(next) {
 }
 function setupUpdater() {
     if (!app.isPackaged || process.env.PULSEDECK_NO_UPDATES === '1') return;
+    // Squirrel.Mac requires a Developer ID signature. Local ad-hoc builds use manual downloads.
+    if (isMac) {
+        let signed = false;
+        try {
+            const result = spawnSync('/usr/bin/codesign', ['-dv', '--verbose=2', path.resolve(process.execPath, '../../..')], { encoding: 'utf8', timeout: 5000 });
+            signed = result.status === 0 && /Authority=Developer ID Application:/.test(result.stderr);
+        } catch { /* A local build may have no Developer ID certificate. */ }
+        if (!signed) { setUpdateState({ status: 'manual', message: 'This local Mac build uses manual updates. Signed releases support automatic updates.' }); return; }
+    }
     try { ({ autoUpdater: updater } = require('electron-updater')); }
     catch { return; } // portable build without the updater module
     updater.autoDownload = true;
@@ -153,7 +167,7 @@ async function start() {
     const permissionAllowed = permission => ['media', 'speaker-selection', 'display-capture'].includes(permission);
     session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(Boolean(contents && contents.getURL() === appURL && permissionAllowed(permission))));
     session.defaultSession.setPermissionCheckHandler((contents, permission) => Boolean(contents && contents.getURL() === appURL && permissionAllowed(permission)));
-    // Fallback path for the replay buffer: getDisplayMedia with Windows system-audio loopback.
+    // System audio is recorded separately from the outgoing mix. macOS uses CoreAudio taps.
     session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
         if (request.frame?.url !== appURL) { callback({}); return; }
         desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })
@@ -179,7 +193,12 @@ async function start() {
     handle('capture:remove', id => library.removeCapture(id), { mainOnly: true });
     handle('capture:import', async (name, bytes) => ({ ...await library.importBuffer(name, bytes, '.wav'), failedHotkeys: hotkeys() }), { mainOnly: true });
     handle('settings:save', async patch => { library.updateSettings(patch); await library.commit(); return library.snapshot(); }, { mainOnly: true });
-    handle('guide:driver', () => shell.openExternal('https://vb-audio.com/Cable/'), { mainOnly: true });
+    handle('guide:driver', () => shell.openExternal(isMac ? 'https://existential.audio/blackhole/' : 'https://vb-audio.com/Cable/'), { mainOnly: true });
+    handle('audio:microphone', async () => {
+        if (!isMac || process.env.PULSEDECK_TEST === '1') return true;
+        if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return true;
+        return systemPreferences.askForMediaAccess('microphone');
+    }, { mainOnly: true });
     handle('data:open', () => shell.openPath(dataRoot), { mainOnly: true });
     handle('audio:active', active => {
         if (active && sleepBlocker === undefined) sleepBlocker = powerSaveBlocker.start('prevent-app-suspension');
@@ -216,6 +235,9 @@ async function start() {
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
     win.webContents.on('will-attach-webview', event => event.preventDefault());
+    if (isMac) win.on('close', event => {
+        if (!quitting) { event.preventDefault(); win.hide(); }
+    });
     win.on('closed', () => { win = null; if (overlay && !overlay.isDestroyed()) overlay.destroy(); });
     await win.loadURL(appURL);
     setupUpdater();
@@ -226,6 +248,7 @@ else {
     app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
     app.whenReady().then(start).catch(error => { dialog.showErrorBox('PulseDeck could not start', error.message); app.quit(); });
     app.on('window-all-closed', () => app.quit());
+    app.on('activate', () => { if (win) { win.show(); win.focus(); } });
     app.on('before-quit', () => { quitting = true; });
     app.on('will-quit', () => { globalShortcut.unregisterAll(); if (sleepBlocker !== undefined) powerSaveBlocker.stop(sleepBlocker); });
 }

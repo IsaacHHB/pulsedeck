@@ -40,6 +40,42 @@ async function main() {
     await page.waitForFunction(() => Boolean(window.deck) && document.querySelector('#micVolume').value === '100');
     await page.screenshot({ path: path.join(results, 'empty.png') });
     checks.push('Desktop starts with an isolated renderer, no automatic microphone capture, and an empty library');
+    if (process.platform === 'darwin') {
+      const macUI = await page.evaluate(() => ({ platform: window.deck.platform, guide: document.querySelector('#guideDialog').textContent, driver: document.querySelector('#driverLink').textContent }));
+      assert.equal(macUI.platform, 'darwin');
+      assert.ok(macUI.guide.includes('Cmd+Option+R') && !macUI.guide.includes('Ctrl'));
+      assert.ok(macUI.guide.includes('Original sound for musicians') && macUI.driver.includes('BlackHole'));
+      assert.ok(!macUI.guide.includes('Windows') && !macUI.guide.includes('VB-CABLE'));
+      const capture = await page.evaluate(async () => {
+        const { AudioEngine } = await import('./audio.js');
+        const engine = new AudioEngine(), original = navigator.mediaDevices.getDisplayMedia;
+        let legacyCalled = false, stopped = 0;
+        const legacy = navigator.mediaDevices.getUserMedia;
+        navigator.mediaDevices.getUserMedia = async () => { legacyCalled = true; throw new Error('Legacy path called'); };
+        const video = { stop() { stopped++; } }, audio = { readyState: 'live', stop() { stopped++; } };
+        const stream = { getVideoTracks: () => [video], removeTrack() {}, getAudioTracks: () => [audio], getTracks: () => [audio] };
+        navigator.mediaDevices.getDisplayMedia = async () => stream;
+        try {
+          const result = await engine.captureSystemAudio();
+          const good = result === stream && stopped === 1 && !legacyCalled;
+          navigator.mediaDevices.getDisplayMedia = async () => { throw new DOMException('Denied', 'NotAllowedError'); };
+          let denied = '';
+          try { await engine.captureSystemAudio(); } catch (e) { denied = e.message; }
+          navigator.mediaDevices.getDisplayMedia = async () => ({ ...stream, getAudioTracks: () => [], getTracks: () => [audio] });
+          let missing = '';
+          try { await engine.captureSystemAudio(); } catch (e) { missing = e.message; }
+          return { good, denied, missing, stopped, legacyCalled };
+        } finally {
+          navigator.mediaDevices.getDisplayMedia = original;
+          navigator.mediaDevices.getUserMedia = legacy;
+        }
+      });
+      assert.ok(capture.good && !capture.legacyCalled);
+      assert.ok(capture.denied.includes('Privacy & Security') && capture.missing.includes('No system audio track'));
+      assert.equal(capture.stopped, 3);
+      checks.push('Mac guide, system-capture path, permission denial, and missing-track cleanup work');
+    }
+
     const security = await page.evaluate(() => ({ require: typeof window.require, process: typeof window.process }));
     assert.deepEqual(security, { require: 'undefined', process: 'undefined' });
     await app.evaluate(({ dialog }, paths) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: paths }); }, files);
@@ -64,10 +100,11 @@ async function main() {
         oscillator.frequency.value = 880; gain.gain.value = 0.2; oscillator.connect(gain); gain.connect(destination); oscillator.start(); await ctx.resume();
         window.testCaptureContexts.push(ctx); window.testTracks.push(...destination.stream.getTracks()); return destination.stream;
       };
+      navigator.mediaDevices.getDisplayMedia = async () => navigator.mediaDevices.getUserMedia();
       window.testDevices = [
         { kind: 'audioinput', deviceId: 'test-mic', label: 'Test physical microphone' },
-        { kind: 'audioinput', deviceId: 'test-return', label: 'CABLE Output (test)' },
-        { kind: 'audiooutput', deviceId: 'test-cable', label: 'CABLE Input (test)' },
+        { kind: 'audioinput', deviceId: 'test-return', label: window.deck.platform === 'darwin' ? 'BlackHole 2ch' : 'CABLE Output (test)' },
+        { kind: 'audiooutput', deviceId: 'test-cable', label: window.deck.platform === 'darwin' ? 'BlackHole 2ch' : 'CABLE Input (test)' },
         { kind: 'audiooutput', deviceId: 'test-phones', label: 'Test headphones' }
       ];
       navigator.mediaDevices.enumerateDevices = async () => window.testDevices;
@@ -82,10 +119,10 @@ async function main() {
     checks.push('Real MP3 decoding and the soundboard/limiter graph produce nonzero PCM with a selected broadcast sink');
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('shortcut', { type: 'stop' }));
     await page.waitForFunction(() => document.querySelectorAll('.sound-pad.playing').length === 0);
-    const registered = await app.evaluate(({ globalShortcut }) => ({ stop: globalShortcut.isRegistered('Control+Alt+Space'), mute: globalShortcut.isRegistered('Control+Alt+M'), pad: globalShortcut.isRegistered('Control+Alt+1') }));
+    const registered = await app.evaluate(({ globalShortcut }) => ({ stop: globalShortcut.isRegistered((process.platform === 'darwin' ? 'Command' : 'Control') + '+Alt+Space'), mute: globalShortcut.isRegistered((process.platform === 'darwin' ? 'Command' : 'Control') + '+Alt+M'), pad: globalShortcut.isRegistered((process.platform === 'darwin' ? 'Command' : 'Control') + '+Alt+1') }));
     console.log('Shortcut registration:', registered);
-    if (registered.stop && registered.mute && registered.pad) checks.push('Windows global shortcuts register, and the stop shortcut event stops all clips');
-    else { const warning = await page.evaluate(() => window.deck.getLibrary()); assert.ok(warning.failedHotkeys.length); checks.push('Unavailable Windows shortcut registrations are reported; injected stop events stop all clips'); }
+    if (registered.stop && registered.mute && registered.pad) checks.push('Global shortcuts register, and the stop shortcut event stops all clips');
+    else { const warning = await page.evaluate(() => window.deck.getLibrary()); assert.ok(warning.failedHotkeys.length); checks.push('Unavailable shortcut registrations are reported; injected stop events stop all clips'); }
     // Overlay: an always-on-top mini deck driven through the main window's engine.
     const overlayPromise = app.waitForEvent('window');
     await page.click('#overlayBtn'); await page.waitForFunction(() => document.querySelector('#overlayBtn').getAttribute('aria-pressed') === 'true');
@@ -100,7 +137,11 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('#muteBtn').getAttribute('aria-pressed') === 'false');
     await overlayPage.screenshot({ path: path.join(results, 'overlay.png') });
     await overlayPage.click('#hideBtn'); await page.waitForFunction(() => document.querySelector('#overlayBtn').getAttribute('aria-pressed') === 'false');
+    await until(page, async () => Boolean((await window.deck.getLibrary()).settings.overlay));
     const overlayBounds = await page.evaluate(async () => (await window.deck.getLibrary()).settings.overlay); assert.ok(overlayBounds && overlayBounds.width >= 200, JSON.stringify(overlayBounds));
+    if (process.platform === 'darwin') {
+      assert.ok(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.getTitle() === 'PulseDeck overlay').isVisibleOnAllWorkspaces()));
+    }
     checks.push('Game overlay plays, stops, and mutes through the main audio engine, mirrors playing state, and remembers its position');
     // Auto-level: the deliberately quiet clip is measured and boosted toward the shared target.
     await page.locator('.pad-main').nth(5).click(); await page.waitForFunction(() => document.querySelectorAll('.sound-pad')[5].classList.contains('playing'));
@@ -190,8 +231,8 @@ async function main() {
     await until(page, async () => (await window.deck.getLibrary()).clips[0].name === 'Drum roll');
     const order = await page.evaluate(async () => (await window.deck.getLibrary()).clips.map(c => c.name + '=' + c.hotkey));
     assert.deepEqual(order.slice(0, 4), ['Drum roll=Control+Alt+1', 'Air horn · test=Control+Alt+2', 'Good game=Control+Alt+3', 'Plot twist=Control+Alt+4'], JSON.stringify({ keysBefore, order }));
-    assert.equal(await page.locator('.sound-pad').first().locator('.pad-key').textContent(), 'Ctrl+Alt+1');
-    assert.ok(await app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered('Control+Alt+1')));
+    assert.equal(await page.locator('.sound-pad').first().locator('.pad-key').textContent(), process.platform === 'darwin' ? 'Cmd+Option+1' : 'Ctrl+Alt+1');
+    assert.ok(await app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered((process.platform === 'darwin' ? 'Command' : 'Control') + '+Alt+1')));
     await page.locator('.pad-edit').first().click({ force: true }); assert.ok(await page.locator('#editHotkey').isDisabled()); await page.click('#closeEdit');
     checks.push('Dragging a pad reorders the board and the Ctrl+Alt digit shortcuts follow the new positions');
     await page.evaluate(() => { document.querySelector('#toast').hidden = true; });
@@ -201,6 +242,19 @@ async function main() {
     assert.equal(await page.locator('.pad-name').first().textContent(), 'Drum roll'); assert.equal(await page.locator('.pad-name').nth(1).textContent(), 'Air horn · test'); assert.equal(await page.locator('.capture').count(), 2);
     assert.equal(await page.locator('#statusPill.live').count(), 0);
     checks.push('Reload preserves sounds and edits, and does not automatically start broadcasting');
+    if (process.platform === 'darwin') {
+      const lifecycle = await app.evaluate(({ app, BrowserWindow }) => {
+        const win = BrowserWindow.getAllWindows().find(w => w.getTitle() === 'PulseDeck');
+        win.close();
+        const kept = !win.isDestroyed() && !win.isVisible();
+        app.emit('activate');
+        const reopened = win.isVisible();
+        win.hide();
+        return { kept, reopened };
+      });
+      assert.deepEqual(lifecycle, { kept: true, reopened: true });
+      checks.push('Mac close hides the window without destroying the audio engine, and Dock activation reopens it');
+    }
     assert.deepEqual(errors, []);
     const report = { passed: checks.length, checks, rendererErrors: errors, hardware: 'External device selection and microphone PCM were simulated; actual MP3 decoding, mixing, DSP, capture lifecycle, persistence and UI ran in Electron. Automated launch used --no-sandbox because this execution environment prevents sandboxed Chromium subprocess startup; the shipping app keeps its sandbox enabled. Discord/OBS/game end-to-end audio requires the installed cable and live setup.' };
     await fs.writeFile(path.join(results, 'integration-report.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));

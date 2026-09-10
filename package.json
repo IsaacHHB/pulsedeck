@@ -1,8 +1,8 @@
 {
     "name": "pulsedeck",
     "productName": "PulseDeck",
-    "version": "0.5.0",
-    "description": "A local Windows soundboard, microphone mixer, voice changer, and replay buffer for Discord, games, and calls",
+    "version": "0.6.1",
+    "description": "A local soundboard, microphone mixer, voice changer, and replay buffer for Mac and Windows",
     "main": "main.cjs",
     "author": "Isaac Hollow Horn Bear",
     "license": "MIT",
@@ -13,11 +13,14 @@
     },
     "scripts": {
         "start": "electron .",
-        "test": "node --test tests/library.test.cjs && node tests/voice-effects.cjs && node tests/integration.cjs",
+        "test": "node --test tests/library.test.cjs tests/platform.test.cjs tests/replay-buffer.test.cjs && node tests/voice-effects.cjs && node tests/integration.cjs",
         "icon": "node make-icon.cjs",
-        "dist": "electron-builder --win",
+        "dist": "node make-icon.cjs && electron-builder --win",
         "dist:publish": "electron-builder --win --publish always",
-        "package": "node make-icon.cjs && node build.mjs"
+        "package": "node make-icon.cjs && node build.mjs",
+        "dist:mac": "node make-icon.cjs && electron-builder --mac --arm64",
+        "dist:mac:local": "node make-icon.cjs && electron-builder --config electron-builder.local.cjs --mac --arm64 --publish never",
+        "test:package": "node tests/package-smoke.cjs"
     },
     "dependencies": {
         "electron-updater": "^6.3.9"
@@ -32,7 +35,7 @@
     "build": {
         "appId": "dev.thelakotadev.pulsedeck",
         "productName": "PulseDeck",
-        "copyright": "Copyright © 2026 Isaac Hollow Horn Bear",
+        "copyright": "Copyright \u00a9 2026 Isaac Hollow Horn Bear",
         "directories": {
             "output": "dist"
         },
@@ -49,12 +52,24 @@
             "!test-results/**",
             "!PulseDeck Data/**",
             "!dist/**",
-            "!release/**"
+            "!release/**",
+            "icon.png",
+            "!electron-builder.local.cjs"
         ],
         "win": {
             "target": [
-                { "target": "nsis", "arch": ["x64"] },
-                { "target": "zip", "arch": ["x64"] }
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                },
+                {
+                    "target": "zip",
+                    "arch": [
+                        "x64"
+                    ]
+                }
             ],
             "icon": "icon.ico",
             "artifactName": "${productName}-Portable.${ext}",
@@ -69,7 +84,42 @@
             "deleteAppDataOnUninstall": false
         },
         "publish": [
-            { "provider": "github", "owner": "IsaacHHB", "repo": "pulsedeck", "releaseType": "release" }
-        ]
+            {
+                "provider": "github",
+                "owner": "IsaacHHB",
+                "repo": "pulsedeck",
+                "releaseType": "release"
+            }
+        ],
+        "mac": {
+            "target": [
+                {
+                    "target": "dmg",
+                    "arch": [
+                        "arm64",
+                        "x64"
+                    ]
+                },
+                {
+                    "target": "zip",
+                    "arch": [
+                        "arm64",
+                        "x64"
+                    ]
+                }
+            ],
+            "category": "public.app-category.music",
+            "icon": "icon.png",
+            "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+            "minimumSystemVersion": "14.2",
+            "hardenedRuntime": true,
+            "entitlements": "build/entitlements.mac.plist",
+            "entitlementsInherit": "build/entitlements.mac.plist",
+            "extendInfo": {
+                "NSMicrophoneUsageDescription": "PulseDeck mixes your microphone with voice effects and sounds for calls.",
+                "NSAudioCaptureUsageDescription": "PulseDeck keeps recent system audio in the replay buffer so you can save a clip.",
+                "NSScreenCaptureUsageDescription": "PulseDeck accesses system audio for the replay buffer. No screen video is saved."
+            }
+        }
     }
 }

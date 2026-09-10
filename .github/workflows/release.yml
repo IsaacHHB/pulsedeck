@@ -1,4 +1,4 @@
-# Builds the Windows installer + portable zip and publishes them as a GitHub Release
+# Builds Windows and Mac packages and publishes signed releases
 # whenever a version tag (v1.2.3) is pushed. electron-updater reads the same release
 # to update installed copies automatically.
 name: Release
@@ -44,3 +44,39 @@ jobs:
             dist/*.exe
             dist/*.zip
             dist/latest.yml
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Build Mac releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          node make-icon.cjs
+          if [[ -n "$CSC_LINK" && -n "$APPLE_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
+            npx electron-builder --mac --publish always -c.forceCodeSigning=true
+          else
+            echo "Signing credentials are not configured. Building a local Apple silicon artifact without publishing."
+            npm run dist:mac:local
+          fi
+      - name: Keep Mac installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulsedeck-mac
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.blockmap
+            dist/latest-mac.yml

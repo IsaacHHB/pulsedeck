@@ -1,4 +1,5 @@
 import { buildVoiceEffect } from './voice-effects.js';
+import { isMac, microphoneHelp } from './platform.js';
 
 /**
  * PulseDeck audio engine.
@@ -96,6 +97,7 @@ export class AudioEngine extends EventTarget {
     /** Opens the microphone and wires it through the current voice effect. */
     async captureMic(micId) {
         if (!micId) throw new Error('Choose your microphone, or choose Sounds only.');
+        if (window.deck?.requestMicrophone && !await window.deck.requestMicrophone()) throw new Error(microphoneHelp);
         const stream = await navigator.mediaDevices.getUserMedia({
             video: false,
             audio: { deviceId: { exact: micId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
@@ -333,8 +335,20 @@ export class AudioEngine extends EventTarget {
 
     /* ─── Replay buffer: rolling capture of system audio (what you hear) ─── */
 
-    /** Opens a loopback stream of the computer's playback audio. Windows only for the actual loopback; tests replace this. */
+    /** Opens system audio, using the supported desktop capture path on macOS. */
     async captureSystemAudio() {
+        if (isMac) {
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                stream.getVideoTracks().forEach(track => { track.stop(); stream.removeTrack(track); });
+                if (!stream.getAudioTracks().some(track => track.readyState === 'live')) throw new Error('No system audio track was provided.');
+                return stream;
+            } catch (error) {
+                stream?.getTracks().forEach(track => track.stop());
+                throw new Error(`Could not capture your Mac’s audio. Allow PulseDeck in System Settings → Privacy & Security → Screen & System Audio Recording, then reopen PulseDeck and try again. ${error.message || error}`);
+            }
+        }
         try {
             // Legacy desktop-capture constraints work without a user gesture and give system loopback on Windows.
             const stream = await navigator.mediaDevices.getUserMedia({

@@ -160,6 +160,7 @@ class Library {
       if (patch.hotkey && !hotkey) throw new Error('Use Ctrl+Alt, Ctrl+Shift, or Alt+Shift with a letter, number, or function key.');
       if (hotkey === 'Control+Alt+M') throw new Error('Ctrl+Alt+M is reserved for microphone mute.');
       if (hotkey === 'Control+Alt+O') throw new Error('Ctrl+Alt+O is reserved for the game overlay.');
+      if (hotkey === 'Control+Alt+R') throw new Error('Ctrl+Alt+R is reserved for saving replay clips.');
       const index = this.state.clips.indexOf(clip);
       if (isSlotKey(hotkey) && hotkey !== SLOT_KEYS[index]) throw new Error('Ctrl+Alt+0–9 follow pad order. Drag the pad into that position instead.');
       if (index < SLOT_KEYS.length && hotkey !== SLOT_KEYS[index]) throw new Error(`This pad is one of the first ten, so it keeps ${SLOT_KEYS[index].replace('Control', 'Ctrl')}. Drag it further down to give it a custom shortcut.`);

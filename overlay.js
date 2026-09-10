@@ -1,7 +1,10 @@
 /* Overlay renderer: mirrors the main window's state and sends commands back. No audio runs here. */
 const $ = id => document.getElementById(id);
 let state = { clips: [], playing: [], muted: false, live: false, progress: {} };
-const prettyKey = key => key ? key.replaceAll('Control', 'Ctrl').replaceAll('+', '+') : '';
+const prettyKey = key => key ? key.replaceAll('Control', window.overlay.platform === 'darwin' ? 'Cmd' : 'Ctrl').replaceAll('Alt', window.overlay.platform === 'darwin' ? 'Option' : 'Alt') : '';
+if (window.overlay.platform === 'darwin') for (const element of document.querySelectorAll('[title]')) {
+    element.title = element.title.replaceAll('Ctrl', 'Cmd').replaceAll('Alt', 'Option');
+}
 
 function render() {
     const grid = $('grid');

@@ -12,6 +12,7 @@ async function until(page, fn, timeout = 12000) {
 }
 async function main() {
   const root = path.resolve(__dirname, '..'), results = path.join(root, 'test-results');
+  await fs.mkdir(results, { recursive: true });
   const data = await fs.mkdtemp(path.join(results, 'voice-'));
   const env = { ...process.env, PULSEDECK_TEST: '1', PULSEDECK_DATA: data }; delete env.ELECTRON_RUN_AS_NODE;
   const app = await electron.launch({ args: ['--no-sandbox', root], env });
