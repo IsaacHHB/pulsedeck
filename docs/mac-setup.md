@@ -20,7 +20,7 @@ Closing the main window keeps audio running. Click the Dock icon to reopen. Quit
 
 ## Replay
 
-Enable the replay buffer and allow system-audio capture when macOS asks. If access was denied, check System Settings → Privacy & Security → Screen & System Audio Recording and reopen PulseDeck. Use the packaged PulseDeck app, because development launches may use their parent terminal's permission identity.
+Enable the replay buffer and allow system-audio capture when macOS asks. If access was denied, allow PulseDeck under System Audio Recording in System Settings → Privacy & Security → Screen & System Audio Recording, then quit and reopen PulseDeck. Version 0.6.4 needs audio access only; full screen-recording access is unnecessary. Use the packaged PulseDeck app, because development launches may use their parent terminal's permission identity.
 
 Play some audio on the Mac. The replay meter should show Sound. Save a clip, trim it, preview through headphones, and add it to the board. Include my microphone adds the processed mic while the microphone is connected or being previewed. Keep the meeting's output off BlackHole to avoid feeding participants' voices back to them.
 
@@ -46,6 +46,8 @@ Personal builds use manual updates. A public Mac release requires Developer ID s
 - [Zoom professional audio settings](https://support.zoom.com/hc/en/article?id=zm_kb&sysparm_article=KB0059985)
 
 For a real 60-second replay check, run `node tests/mac-replay-real.cjs` on a quiet Mac. This opt-in test plays two quiet tones separated by silence, saves a full minute, verifies that older audio was discarded, trims to a five-second soundboard clip, and checks saving from the main button, shortcut action, and overlay. It uses a separate test library.
+
+To verify PulseDeck's own macOS permissions, quit PulseDeck and run `node tests/mac-audio-permission-real.cjs`. This launches the installed app through macOS Launch Services instead of inheriting the terminal's recording permissions. It uses a separate library, checks a full minute and an audible five-second trim, and closes the test app afterward. Set `PULSEDECK_EXPECT_SCREEN_DENIED=1` to require that the check succeeds without full screen-recording permission.
 
 
 ## Distorted or unusually deep sound

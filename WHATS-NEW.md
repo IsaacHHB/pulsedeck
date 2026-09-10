@@ -1,3 +1,9 @@
+# PulseDeck 0.6.4
+
+- Mac replay now uses system-audio permission without requiring permission to record the screen. The required temporary video track comes from PulseDeck's own window and is immediately discarded.
+- Capture errors distinguish denied access from capture startup failures.
+- Fixed Mac release builds failing when optional signing credentials are empty.
+
 # PulseDeck 0.6.3
 
 - Fixed the Restart to update button appearing on Mac and Windows when no update was downloaded. Button styling was overriding its hidden state.

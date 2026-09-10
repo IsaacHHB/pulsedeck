@@ -177,6 +177,12 @@ async function start() {
     // System audio is recorded separately from the outgoing mix. macOS uses CoreAudio taps.
     session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
         if (request.frame?.url !== appURL) { callback({}); return; }
+        if (isMac) {
+            // getDisplayMedia requires video, but replay only needs system audio.
+            // Supply our own frame so audio-only permission does not also need screen access.
+            callback({ video: request.frame, audio: 'loopback' });
+            return;
+        }
         desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })
             .then(sources => callback(sources.length ? { video: sources[0], audio: 'loopback' } : {}))
             .catch(() => callback({}));

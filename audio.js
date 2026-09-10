@@ -365,7 +365,11 @@ export class AudioEngine extends EventTarget {
                 return stream;
             } catch (error) {
                 stream?.getTracks().forEach(track => track.stop());
-                throw new Error(`Could not capture your Mac’s audio. Allow PulseDeck in System Settings → Privacy & Security → Screen & System Audio Recording, then reopen PulseDeck and try again. ${error.message || error}`);
+                const detail = error.message || String(error);
+                if (error.name === 'NotAllowedError') {
+                    throw new Error(`System audio access was denied. Allow PulseDeck under System Audio Recording in System Settings → Privacy & Security → Screen & System Audio Recording, then quit and reopen PulseDeck. ${detail}`);
+                }
+                throw new Error(`Could not start Mac system audio capture. Quit and reopen PulseDeck, then try again. ${detail}`);
             }
         }
         try {

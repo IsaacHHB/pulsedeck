@@ -69,6 +69,7 @@ jobs:
             npx electron-builder --mac --publish always -c.forceCodeSigning=true
           else
             echo "Signing credentials are not configured. Building a local Apple silicon artifact without publishing."
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
             npm run dist:mac:local
           fi
       - name: Keep Mac installers
