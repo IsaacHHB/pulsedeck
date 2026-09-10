@@ -144,6 +144,10 @@ function setupUpdater() {
         } catch { /* A local build may have no Developer ID certificate. */ }
         if (!signed) { setUpdateState({ status: 'manual', message: 'This local Mac build uses manual updates. Signed releases support automatic updates.' }); return; }
     }
+    if (!fs.existsSync(path.join(process.resourcesPath, 'app-update.yml'))) {
+        setUpdateState({ status: 'manual', message: 'This copy uses manual updates. Download the latest version from the releases page.' });
+        return;
+    }
     try { ({ autoUpdater: updater } = require('electron-updater')); }
     catch { return; } // portable build without the updater module
     updater.autoDownload = true;
@@ -153,7 +157,10 @@ function setupUpdater() {
     updater.on('update-not-available', () => setUpdateState({ status: 'latest', checkedAt: Date.now() }));
     updater.on('download-progress', progress => setUpdateState({ status: 'downloading', percent: Math.round(progress.percent) }));
     updater.on('update-downloaded', info => setUpdateState({ status: 'ready', version: info.version, notes: typeof info.releaseNotes === 'string' ? info.releaseNotes.slice(0, 2000) : '' }));
-    updater.on('error', error => setUpdateState({ status: 'error', message: String(error?.message || error).slice(0, 200) }));
+    updater.on('error', error => {
+        if (updateState.status === 'installing') quitting = false;
+        setUpdateState({ status: 'error', message: String(error?.message || error).slice(0, 200) });
+    });
     const check = () => updater.checkForUpdates().catch(() => {});
     setTimeout(check, 8000);                 // shortly after launch
     setInterval(check, 4 * 60 * 60 * 1000); // and every four hours while running
@@ -223,7 +230,19 @@ async function start() {
     handle('app:version', () => app.getVersion(), { mainOnly: true });
     handle('update:state', () => updateState, { mainOnly: true });
     handle('update:check', async () => { if (!updater) return updateState; await updater.checkForUpdates().catch(() => {}); return updateState; }, { mainOnly: true });
-    handle('update:install', () => { if (updater && updateState.status === 'ready') { quitting = true; updater.quitAndInstall(false, true); } }, { mainOnly: true });
+    handle('update:install', () => {
+        if (!updater || updateState.status !== 'ready') {
+            return { ok: false, message: updateState.message || 'No downloaded update is ready. Click the version at the bottom to check for updates.' };
+        }
+        setUpdateState({ status: 'installing' });
+        quitting = true;
+        try { updater.quitAndInstall(false, true); }
+        catch (error) {
+            quitting = false;
+            setUpdateState({ status: 'error', message: String(error?.message || error).slice(0, 200) });
+        }
+        return { ok: updateState.status === 'installing', message: updateState.message };
+    }, { mainOnly: true });
     handle('update:releases', () => shell.openExternal(RELEASES_URL), { mainOnly: true });
     handle('overlay:focusMain', () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
 

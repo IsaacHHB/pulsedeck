@@ -25,8 +25,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Unit tests
-        run: node --test tests/library.test.cjs
+      - name: Unit, audio, and desktop tests
+        run: npm test
 
       - name: Build and publish installer
         env:

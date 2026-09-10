@@ -729,31 +729,43 @@ window.addEventListener('resize', drawWaveform);
 engine.addEventListener('replay', event => { replayUI(event.detail); connectionUI(); });
 
 /* ─── Updates ──────────────────────────────────────────────── */
-let appVersion = '', updateCountdown = 0;
+let appVersion = '', updateCountdown = 0, updatePending = false;
 function updateUI(state) {
     const button = $('updateBtn'), version = $('versionBtn');
-    button.hidden = state.status !== 'ready';
+    button.hidden = !['ready', 'installing'].includes(state.status);
+    button.disabled = updatePending || state.status === 'installing';
     if (state.status === 'ready') $('updateBtnText').textContent = `Restart to update to v${state.version}`;
+    if (state.status === 'installing') $('updateBtnText').textContent = 'Restarting to update…';
     version.classList.toggle('busy', ['checking', 'downloading'].includes(state.status));
     version.textContent = {
         checking: `PulseDeck · v${appVersion} · checking for updates…`,
         downloading: `PulseDeck · v${appVersion} · downloading v${state.version || ''}${state.percent ? ` ${state.percent}%` : ''}`,
         ready: `PulseDeck · v${appVersion} · v${state.version} ready`,
+        installing: `PulseDeck · v${appVersion} · restarting to update…`,
         latest: `PulseDeck · v${appVersion} · up to date`,
         manual: `PulseDeck · v${appVersion} · manual updates`,
-        error: `PulseDeck · v${appVersion} · update check failed`
+        error: `PulseDeck · v${appVersion} · update failed`
     }[state.status] || `PulseDeck · v${appVersion}`;
     version.title = state.status === 'error' ? `${state.message || 'Could not reach the update server.'} Click to try again.` : state.status === 'manual' ? state.message : 'Check for updates';
 }
 $('updateBtn').onclick = () => run(async () => {
+    if (updatePending) return;
+    updatePending = true;
+    $('updateBtn').disabled = true;
     const token = ++updateCountdown;
-    if (engine.connected) {
-        const seconds = 5;
-        toast(`Updating in ${seconds} seconds. Your broadcast will stop. Press ${prettyKey('Control+Alt+Space')} to cancel.`);
-        await new Promise(resolve => setTimeout(resolve, seconds * 1000));
+    try {
+        if (engine.connected) {
+            const seconds = 5;
+            toast(`Updating in ${seconds} seconds. Your broadcast will stop. Press ${prettyKey('Control+Alt+Space')} to cancel.`);
+            await new Promise(resolve => setTimeout(resolve, seconds * 1000));
+        }
+        if (token !== updateCountdown) { toast('Update canceled.'); return; }
+        const result = await window.deck.installUpdate();
+        if (!result?.ok) toast(result?.message || 'The update could not start. Click the version at the bottom to try again.');
+    } finally {
+        updatePending = false;
+        updateUI(await window.deck.updateState());
     }
-    if (token !== updateCountdown) return;
-    await window.deck.installUpdate();
 });
 $('versionBtn').onclick = () => run(async () => {
     const state = await window.deck.checkForUpdates();

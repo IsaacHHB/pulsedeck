@@ -40,6 +40,26 @@ async function main() {
     await page.waitForFunction(() => Boolean(window.deck) && document.querySelector('#micVolume').value === '100');
     await page.screenshot({ path: path.join(results, 'empty.png') });
     checks.push('Desktop starts with an isolated renderer, no automatic microphone capture, and an empty library');
+    await page.waitForFunction(() => document.querySelector('#versionBtn').textContent.includes('PulseDeck · v'));
+    assert.equal(await page.locator('#updateBtn').isVisible(), false, 'No restart button before an update is downloaded');
+    const unavailableUpdate = await page.evaluate(() => window.deck.installUpdate());
+    assert.equal(unavailableUpdate.ok, false);
+    assert.match(unavailableUpdate.message, /No downloaded update/);
+    for (const status of ['manual', 'checking', 'downloading', 'latest', 'error', 'ready', 'installing']) {
+      await app.evaluate(({ BrowserWindow }, status) => {
+        BrowserWindow.getAllWindows()[0].webContents.send('update', { status, version: '99.0.0' });
+      }, status);
+      await page.waitForFunction(status => {
+        const button = document.querySelector('#updateBtn');
+        return button.hidden === !['ready', 'installing'].includes(status) && button.disabled === (status === 'installing');
+      }, status);
+      assert.equal(await page.locator('#updateBtn').isVisible(), ['ready', 'installing'].includes(status), status);
+    }
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('update', { status: 'ready', version: '99.0.0' }));
+    await page.locator('#updateBtn').click();
+    await page.waitForFunction(() => document.querySelector('#toast').textContent.includes('No downloaded update'));
+    assert.equal(await page.locator('#updateBtn').isVisible(), false, 'Stale ready state is corrected after clicking');
+    checks.push('Restart button appears only for a downloaded update, disables during installation, and explains unavailable updates');
     if (process.platform === 'darwin') {
       const macUI = await page.evaluate(() => ({ platform: window.deck.platform, guide: document.querySelector('#guideDialog').textContent, driver: document.querySelector('#driverLink').textContent }));
       assert.equal(macUI.platform, 'darwin');
@@ -197,6 +217,7 @@ async function main() {
     checks.push('Corrupt MP3 playback reports an actionable error and clears its playing state');
     await page.locator('.pad-edit').last().click(); await page.click('#deleteSound'); await page.click('#deleteSound'); await page.waitForFunction(() => document.querySelectorAll('.sound-pad').length === 6);
     // Replay buffer: rolling capture of system audio, saved on demand, trimmed, and added as a pad.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.getTitle() === 'PulseDeck').setSize(1024, 768));
     await page.click('#replayNav'); await page.check('#replayToggle');
     await page.waitForFunction(() => document.querySelector('#replayArm').classList.contains('armed') && !document.querySelector('#captureBtn').disabled);
     await page.waitForFunction(() => document.querySelector('#replayLevelLabel').textContent === 'Sound');
@@ -222,6 +243,7 @@ async function main() {
     await page.uncheck('#replayToggle'); await page.waitForFunction(() => !document.querySelector('#replayArm').classList.contains('armed'));
     await page.screenshot({ path: path.join(results, 'replay.png') }); await page.click('#boardNav');
     checks.push('Replay buffer captures system audio into a rolling buffer, saves from the button, the Ctrl+Alt+R shortcut and the overlay, trims, previews, and adds the selection to the soundboard');
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.getTitle() === 'PulseDeck').setSize(1280, 860));
     await page.evaluate(() => { window.testDevices = window.testDevices.filter(d => d.deviceId !== 'test-cable'); navigator.mediaDevices.dispatchEvent(new Event('devicechange')); });
     await page.waitForFunction(() => !document.querySelector('#statusPill').classList.contains('live'));
     checks.push('Removing the selected broadcast endpoint disconnects the mix instead of falling back');

@@ -15,6 +15,7 @@ async function main() {
     await page.waitForFunction(() => Boolean(window.deck) && document.querySelector('#emptyState'));
     const info = await app.evaluate(({ app, BrowserWindow }) => ({ packaged: app.isPackaged, appPath: app.getAppPath(), sandbox: BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences().sandbox }));
     assert.ok(info.packaged && info.sandbox && info.appPath.endsWith('app.asar'));
+    assert.equal(await page.locator('#updateBtn').isVisible(), false, 'Packaged app must not offer restart before downloading an update');
     const devices = await page.evaluate(async () => (await navigator.mediaDevices.enumerateDevices()).map(d => ({ kind: d.kind, label: d.label })));
     await page.evaluate(() => { document.querySelector('#toast').hidden = true; });
     await page.screenshot({ path: path.join(results, 'packaged-empty.png') });

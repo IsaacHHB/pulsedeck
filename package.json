@@ -1,7 +1,7 @@
 {
     "name": "pulsedeck",
     "productName": "PulseDeck",
-    "version": "0.6.2",
+    "version": "0.6.3",
     "description": "A local soundboard, microphone mixer, voice changer, and replay buffer for Mac and Windows",
     "main": "main.cjs",
     "author": "Isaac Hollow Horn Bear",
@@ -35,7 +35,7 @@
     "build": {
         "appId": "dev.thelakotadev.pulsedeck",
         "productName": "PulseDeck",
-        "copyright": "Copyright \u00a9 2026 Isaac Hollow Horn Bear",
+        "copyright": "Copyright © 2026 Isaac Hollow Horn Bear",
         "directories": {
             "output": "dist"
         },

@@ -1,3 +1,10 @@
+# PulseDeck 0.6.3
+
+- Fixed the Restart to update button appearing on Mac and Windows when no update was downloaded. Button styling was overriding its hidden state.
+- Update installation now reports unavailable updates and failures, prevents repeated clicks, and shows when a restart is in progress.
+- Builds without update configuration use the manual download flow. Windows portable packages now report the current package version.
+- Replay controls stay accessible in smaller windows instead of overlapping the help text below them.
+
 # PulseDeck 0.6.2
 
 - Automatic sound leveling now accounts for each clip's highest peak. Loud transients are no longer boosted into overload just to reach the average-volume target.
