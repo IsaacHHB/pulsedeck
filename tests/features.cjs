@@ -585,8 +585,14 @@ async function studioSteps(ctx) {
   // An edit after saving is kept in a recovery draft for the next launch.
   await page.locator(`.studio-region[data-id="${(await studioRegions(page))[0].id}"]`).click({ position: { x: 8, y: 8 } });
   await page.fill('#inspGain', '-3'); await page.locator('#inspGain').press('Enter');
-  await pause(page,1500);
-  const draft = JSON.parse(await fs.readFile(path.join(dataDir, 'projects', projectId, 'draft.json'), 'utf8'));
+  // The recovery draft is written about a second (wall clock) after the last edit; wait for the file itself.
+  const draftFile = path.join(dataDir, 'projects', projectId, 'draft.json');
+  let draft = null;
+  for (let tries = 0; tries < 60 && !draft; tries++) {
+    try { const parsed = JSON.parse(await fs.readFile(draftFile, 'utf8')); if (parsed.project?.regions?.[0]?.gainDb === -3) draft = parsed; } catch { /* not written yet */ }
+    if (!draft) await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  assert.ok(draft, `the recovery draft was written (Studio status: ${await page.locator('#studioStatus').textContent()})`);
   assert.equal(draft.project.regions[0].gainDb, -3); assert.equal(draft.baseRevision, 1);
   const saved = JSON.parse(await fs.readFile(path.join(dataDir, 'projects', projectId, 'project.json'), 'utf8'));
   assert.notEqual(saved.regions[0].gainDb, -3, 'the explicit save is unchanged by the draft');
