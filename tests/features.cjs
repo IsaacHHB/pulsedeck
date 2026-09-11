@@ -1237,4 +1237,9 @@ async function main() {
     console.log(JSON.stringify(report, null, 2));
   } finally { await ctx.app.close(); }
 }
-main().catch(error => { console.error(error); process.exitCode = 1; });
+main().catch(error => {
+  console.error(error);
+  // CI logs need a token to read; workflow annotations are public, so surface the failure there too.
+  if (process.env.GITHUB_ACTIONS) console.log(`::error title=features.cjs failed after: ${(checks.at(-1) || 'start').slice(0, 120).replace(/[:,]/g, ' ')}::${String(error.stack || error).slice(0, 3500).replace(/%/g, '%25').replace(/\r?\n/g, '%0A')}`);
+  process.exitCode = 1;
+});

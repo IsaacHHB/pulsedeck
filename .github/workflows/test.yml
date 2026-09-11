@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     strategy:
+      # Let each platform finish, so one platform's failure does not hide the other's result.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
