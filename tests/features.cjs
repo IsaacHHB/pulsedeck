@@ -685,7 +685,9 @@ async function recorderFlow(ctx) {
   await page.evaluate(() => window.__test.engine.toggleMute());
   const dry = await takeInfo(page);
   // At least the 1.2 s of audio that passed; the upper bound only guards against a runaway take.
-  assert.ok(dry.seconds > 0.9 && dry.seconds < 3.5 && Math.abs(dry.hz - 880) < 15 && dry.peak > 0.1, JSON.stringify(dry));
+  // The test microphone is an oscillator in a second AudioContext; on a starved CI runner the two clocks drift
+  // a few percent, so check that the 880 Hz microphone dominates rather than demanding an exact frequency.
+  assert.ok(dry.seconds > 0.9 && dry.seconds < 3.5 && Math.abs(dry.hz - 880) < 44 && dry.p880 > dry.p540 * 20 && dry.peak > 0.1, JSON.stringify(dry));
   assert.equal(await micStreams(page), 0, 'the recorder released its stream');
   await press(page, '#recPreview');
   await page.waitForFunction(() => window.__test.engine.auditionSession?.owner === 'recorder-take');
@@ -702,7 +704,8 @@ async function recorderFlow(ctx) {
   await openRecorder(page);
   await recordFor(page, 1000, { mode: 'processed' });
   const processed = await takeInfo(page);
-  assert.ok(processed.processed && Math.abs(processed.hz - 880 * 2 ** (7 / 12)) < 25, JSON.stringify(processed));
+  // Compare with the dry take (same clock drift): the chipmunk preset raises the pitch by 7 semitones.
+  assert.ok(processed.processed && Math.abs(processed.hz / dry.hz - 2 ** (7 / 12)) < 0.045, JSON.stringify({ processed, dry }));
   const regionsBefore = (await studioRegions(page)).length;
   await page.fill('#recName', 'Chipmunk take'); await page.click('#recAppend');
   await page.waitForFunction(() => !document.querySelector('#recordDialog').open);
