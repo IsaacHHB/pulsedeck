@@ -1,7 +1,7 @@
 {
     "name": "pulsedeck",
     "productName": "PulseDeck",
-    "version": "0.6.5",
+    "version": "0.6.6",
     "description": "A local soundboard, microphone mixer, voice changer, and replay buffer for Mac and Windows",
     "main": "main.cjs",
     "author": "Isaac Hollow Horn Bear",
