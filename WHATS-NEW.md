@@ -1,3 +1,13 @@
+# PulseDeck 0.6.6
+
+- This update includes everything listed under 0.6.5 below. Version 0.6.5 was tagged, but its build did not pass the automated checks, so it was never released.
+- Ducking and previews no longer do any audio work while they are off, so PulseDeck uses less processing power when idle.
+- Studio keeps edits made while a save is finishing, rolls back failed project changes, and keeps source imports attached to the project they started in. Removed regions no longer leave broken asset references after reopening or backup.
+- Stop all also cancels previews that are still loading. Cancelling microphone recording while monitoring opens releases the microphone correctly; editing a phrase cancels its old speech generation.
+- Studio exports retain timeline length when tracks are muted, and inserting audio inside a fade keeps valid outer fades.
+- Backups reject oversized, inconsistent, linked, or changed inputs without silently dropping sounds. Damaged WAV files and unreadable saved projects now produce errors instead of incomplete results.
+- On Windows, saving the library, a Studio project, or a restored backup now retries briefly if an antivirus scanner or the search indexer is still holding the file, instead of failing the save.
+
 # PulseDeck 0.6.5
 
 ## Make new sounds
