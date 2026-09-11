@@ -4,6 +4,10 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const { Library } = require('./library.cjs');
+const { ProjectStore, writeAtomic } = require('./projects.cjs');
+const { TtsService } = require('./tts.cjs');
+const { createBackup, restoreBackup } = require('./backup.cjs');
+const { parseWav } = require('./wav-header.cjs');
 const pkg = require('./package.json');
 const isMac = process.platform === 'darwin';
 const RELEASES_URL = `${(pkg.repository?.url || 'https://github.com/IsaacHHB/pulsedeck').replace(/\.git$/, '')}/releases/latest`;
@@ -36,7 +40,7 @@ if (process.env.PULSEDECK_TEST === '1') {
 }
 
 const hidden = process.env.PULSEDECK_TEST === '1' || process.env.PULSEDECK_HEADLESS === '1';
-let win, overlay, library, sleepBlocker, overlayState = null, overlayShown = false, quitting = false, overlaySaveTimer;
+let win, overlay, library, projects, tts, sleepBlocker, overlayState = null, overlayShown = false, quitting = false, overlaySaveTimer;
 const appURL = pathToFileURL(path.join(__dirname, 'index.html')).href;
 const overlayURL = pathToFileURL(path.join(__dirname, 'overlay.html')).href;
 const isLocal = url => url === appURL || url === overlayURL;
@@ -166,9 +170,23 @@ function setupUpdater() {
     setInterval(check, 4 * 60 * 60 * 1000); // and every four hours while running
 }
 
+/** Native save dialog, then an atomic write through a temporary sibling. Cancel writes nothing. */
+async function exportFile(name, ext, write) {
+    const clean = String(name || '').replace(/\.[a-z0-9]{1,5}$/i, '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').trim().slice(0, 80) || 'PulseDeck sound';
+    const result = await dialog.showSaveDialog(win, { title: 'Export audio', defaultPath: path.join(app.getPath('music'), clean + ext), filters: [{ name: ext === '.wav' ? 'WAV audio' : 'Audio', extensions: [ext.slice(1)] }] });
+    if (result.canceled || !result.filePath) return null;
+    const target = path.extname(result.filePath).toLowerCase() === ext ? result.filePath : result.filePath + ext;
+    await write(target);
+    return path.basename(target);
+}
+
 async function start() {
     library = new Library(dataRoot);
     await library.init();
+    projects = new ProjectStore(library);
+    await projects.init();
+    tts = new TtsService({ tempRoot: path.join(dataRoot, 'tmp', 'tts') });
+    await tts.init();
     // Only the main window may use audio devices. Desktop (loopback) capture requests report a video type, so
     // "media" is allowed as a whole; no camera is ever requested by the app's own code.
     const permissionAllowed = permission => ['media', 'speaker-selection', 'display-capture'].includes(permission);
@@ -204,8 +222,85 @@ async function start() {
     handle('capture:read', id => library.readCapture(id), { mainOnly: true });
     handle('capture:rename', (id, name) => library.renameCapture(id, name), { mainOnly: true });
     handle('capture:remove', id => library.removeCapture(id), { mainOnly: true });
-    handle('capture:import', async (name, bytes) => ({ ...await library.importBuffer(name, bytes, '.wav'), failedHotkeys: hotkeys() }), { mainOnly: true });
-    handle('settings:save', async patch => { library.updateSettings(patch); await library.commit(); return library.snapshot(); }, { mainOnly: true });
+    handle('capture:import', async (name, bytes) => ({ ...await library.importBuffer(name, bytes, '.wav', { source: { kind: 'capture' } }), failedHotkeys: hotkeys() }), { mainOnly: true });
+    handle('capture:toPad', async (id, name, playback) => ({ ...await library.captureToPad(id, name, playback), failedHotkeys: hotkeys() }), { mainOnly: true });
+    // Text to speech: installed system voices only. Text is data; it is never logged or placed in a command line.
+    handle('tts:info', () => tts.info(), { mainOnly: true });
+    handle('tts:voices', refresh => tts.listVoices({ refresh: Boolean(refresh) }), { mainOnly: true });
+    handle('tts:synthesize', request => {
+        const r = request && typeof request === 'object' ? request : {};
+        return tts.synthesize({ requestId: String(r.requestId || '').slice(0, 64), text: r.text, voiceId: r.voiceId, speed: r.speed });
+    }, { mainOnly: true });
+    handle('tts:cancel', requestId => tts.cancel(String(requestId || '').slice(0, 64)), { mainOnly: true });
+    handle('tts:save', async (resultId, name, volume) => {
+        const entry = tts.result(String(resultId || ''));
+        const result = await library.importBuffer(name, entry.bytes, '.wav', { volume, source: { kind: 'tts', voice: entry.meta.voice.name, language: entry.meta.voice.language, provider: entry.meta.provider, text: entry.text } });
+        return { ...result, failedHotkeys: hotkeys() };
+    }, { mainOnly: true });
+    handle('collection:create', (name, clipIds) => library.createCollection(name, clipIds), { mainOnly: true });
+    handle('collection:rename', (id, name) => library.renameCollection(id, name), { mainOnly: true });
+    handle('collection:delete', id => library.deleteCollection(id), { mainOnly: true });
+    handle('collection:add', (id, clipIds) => library.addToCollection(id, clipIds), { mainOnly: true });
+    handle('collection:remove', (id, clipIds) => library.removeFromCollection(id, clipIds), { mainOnly: true });
+    handle('collection:reorder', (id, clipIds) => library.reorderCollection(id, clipIds), { mainOnly: true });
+    handle('group:create', name => library.createGroup(name), { mainOnly: true });
+    handle('group:rename', (id, name) => library.renameGroup(id, name), { mainOnly: true });
+    handle('group:delete', id => library.deleteGroup(id), { mainOnly: true });
+    handle('queue:save', entries => library.setQueue(entries), { mainOnly: true });
+    handle('clip:exportOriginal', async id => {
+        const clip = library.state.clips.find(c => c.id === id);
+        if (!clip) throw new Error('This sound is no longer in the library.');
+        return exportFile(clip.name, path.extname(clip.file).toLowerCase(), async target => writeAtomic(target, await fs.promises.readFile(library.clipPath(clip))));
+    }, { mainOnly: true });
+    // Portable backup folders. Restore merges; it never changes devices, starts a broadcast, or requests capture.
+    handle('backup:create', async () => {
+        const result = await dialog.showOpenDialog(win, { title: 'Choose where to save the backup', properties: ['openDirectory', 'createDirectory'] });
+        if (result.canceled || !result.filePaths[0]) return null;
+        return createBackup({ library, destination: result.filePaths[0], appVersion: app.getVersion() });
+    }, { mainOnly: true });
+    handle('backup:restore', async () => {
+        const result = await dialog.showOpenDialog(win, { title: 'Choose a PulseDeck Backup folder', properties: ['openDirectory'] });
+        if (result.canceled || !result.filePaths[0]) return null;
+        const restored = await restoreBackup({ library, source: result.filePaths[0] });
+        return { ...restored, failedHotkeys: hotkeys() };
+    }, { mainOnly: true });
+    handle('recording:save', async (name, bytes) => ({ ...await library.importBuffer(name, bytes, '.wav', { source: { kind: 'recording' } }), failedHotkeys: hotkeys() }), { mainOnly: true });
+    handle('settings:save', async patch => library.mutate(async () => { library.updateSettings(patch); return library.snapshot(); }), { mainOnly: true });
+
+    // Sound Studio. Main resolves every id to an owned path; the renderer never chooses where files go.
+    handle('project:list', () => projects.list(), { mainOnly: true });
+    handle('project:create', name => projects.create(name), { mainOnly: true });
+    handle('project:open', id => projects.open(id), { mainOnly: true });
+    handle('project:addAsset', (id, bytes, meta) => projects.addAsset(id, bytes, meta), { mainOnly: true });
+    handle('project:readAsset', (id, assetId) => projects.readAsset(id, assetId), { mainOnly: true });
+    handle('project:save', (id, project) => projects.save(id, project), { mainOnly: true });
+    handle('project:draft', (id, project) => projects.saveDraft(id, project), { mainOnly: true });
+    handle('project:copy', (id, project, name) => projects.saveCopy(id, project, name), { mainOnly: true });
+    handle('project:rename', (id, name) => projects.rename(id, name), { mainOnly: true });
+    handle('project:delete', id => projects.remove(id), { mainOnly: true });
+    handle('project:discard', id => projects.discard(id), { mainOnly: true });
+    handle('project:close', id => projects.close(id), { mainOnly: true });
+    handle('project:recoverable', () => projects.recoverable(), { mainOnly: true });
+    handle('studio:importFile', async () => {
+        const result = await dialog.showOpenDialog(win, { title: 'Import audio into Sound Studio', properties: ['openFile'], filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'webm'] }] });
+        if (result.canceled || !result.filePaths[0]) return null;
+        const file = result.filePaths[0], ext = path.extname(file).toLowerCase();
+        if (!['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.webm'].includes(ext)) throw new Error('Use MP3, WAV, OGG, M4A, FLAC, or WebM.');
+        const stat = await fs.promises.stat(file);
+        if (!stat.isFile() || !stat.size || stat.size > 30 * 1024 * 1024) throw new Error('Choose an audio file between 1 byte and 30 MB.');
+        return { name: path.basename(file, ext).slice(0, 80), bytes: await fs.promises.readFile(file) };
+    }, { mainOnly: true });
+    handle('studio:saveSound', async (projectId, revision, name, color, bytes) => {
+        if (!library.state.projects.some(p => p.id === projectId)) throw new Error('That project no longer exists.');
+        const result = await library.importBuffer(name, bytes, '.wav', { color, source: { kind: 'studio', projectId, revision: Number.isInteger(revision) ? revision : undefined } });
+        return { ...result, failedHotkeys: hotkeys() };
+    }, { mainOnly: true });
+    handle('export:wav', (name, bytes) => exportFile(name, '.wav', async target => {
+        const data = Buffer.from(bytes || []);
+        if (!data.length || data.length > 64 * 1024 * 1024) throw new Error('The exported audio must be between 1 byte and 64 MB.');
+        parseWav(data);
+        await writeAtomic(target, data);
+    }), { mainOnly: true });
     handle('guide:driver', () => shell.openExternal(isMac ? 'https://existential.audio/blackhole/' : 'https://vb-audio.com/Cable/'), { mainOnly: true });
     handle('audio:microphone', async () => {
         if (!isMac || process.env.PULSEDECK_TEST === '1') return true;

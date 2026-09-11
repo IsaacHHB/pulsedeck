@@ -22,7 +22,7 @@ function render() {
         pad.className = `pad ${clip.color}`;
         pad.dataset.id = clip.id;
         pad.title = clip.hotkey ? `${clip.name} · ${prettyKey(clip.hotkey)}` : clip.name;
-        const name = document.createElement('span'); name.className = 'name'; name.textContent = clip.name;
+        const name = document.createElement('span'); name.className = 'name'; name.textContent = clip.favorite ? `★ ${clip.name}` : clip.name;
         const key = document.createElement('span'); key.className = 'key'; key.textContent = clip.hotkey ? prettyKey(clip.hotkey) : (clip.loop ? 'Loop' : ' ');
         const progress = document.createElement('span'); progress.className = 'bar-progress';
         pad.append(name, key, progress);
@@ -38,6 +38,8 @@ function update() {
         const active = playing.has(pad.dataset.id);
         pad.classList.toggle('playing', active);
         pad.querySelector('.bar-progress').style.transform = `scaleX(${active ? state.progress?.[pad.dataset.id] ?? 0 : 0})`;
+        const count = state.counts?.[pad.dataset.id] || 0;
+        pad.dataset.count = count > 1 ? `×${count}` : '';
     }
     $('muteBtn').classList.toggle('muted', state.muted);
     $('muteBtn').textContent = state.muted ? 'Muted' : 'Mic';

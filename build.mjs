@@ -11,6 +11,6 @@ const result = await packager({
   appVersion: pkg.version, appCopyright: 'PulseDeck',
   win32metadata: { CompanyName: 'Personal project', FileDescription: 'PulseDeck soundboard and microphone mixer', ProductName: 'PulseDeck' },
   download: { cacheRoot: path.join(root, '..', 'electron-cache') },
-  ignore: [/^\/tests($|\/)/, /^\/test-results($|\/)/, /^\/PulseDeck Data($|\/)/, /^\/user-data($|\/)/, /^\/build\.mjs$/, /^\/make-icon\.cjs$/, /^\/README\.md$/]
+  ignore: [/^\/tests($|\/)/, /^\/test-results($|\/)/, /^\/workorders($|\/)/, /^\/PulseDeck Data($|\/)/, /^\/user-data($|\/)/, /^\/build\.mjs$/, /^\/make-icon\.cjs$/, /^\/README\.md$/]
 });
 console.log(result.join('\n'));

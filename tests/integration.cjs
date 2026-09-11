@@ -104,7 +104,7 @@ async function main() {
     checks.push('Native file import copies MP3 and WAV clips and search filters them');
     await page.locator('.pad-main').first().click(); await page.waitForFunction(() => document.querySelector('#toast').textContent.includes('Connect the broadcast'));
     checks.push('Playback is blocked until a deliberate output or headphone monitor is connected');
-    await page.locator('.pad-edit').first().click(); await page.fill('#editName', 'Air horn · test'); await page.check('#editLoop'); await page.check('#editColor input[value=purple]'); await page.click('#editForm button[type=submit]');
+    await page.locator('.pad-edit').first().click(); await page.click('#padMenu [data-action=edit]'); await page.fill('#editName', 'Air horn · test'); await page.check('#editLoop'); await page.check('#editColor input[value=purple]'); await page.click('#editForm button[type=submit]');
     await page.waitForFunction(() => document.querySelector('.pad-name').textContent === 'Air horn · test');
     await page.click('#loopTab'); assert.equal(await page.locator('.sound-pad').count(), 1); await page.click('#allTab');
     checks.push('Name, color, looping, and loop filtering update and persist');
@@ -169,7 +169,7 @@ async function main() {
     const levels = await page.evaluate(async () => (await window.deck.getLibrary()).clips.map(c => c.loudness));
     assert.ok(levels[1] - levels[5] > 15, JSON.stringify(levels));
     await page.locator('.pad-main').nth(5).click(); await page.waitForFunction(() => document.querySelectorAll('.sound-pad.playing').length === 0);
-    await page.locator('.pad-edit').nth(5).click({ force: true }); await page.waitForFunction(() => document.querySelector('#editLevelInfo').textContent.includes('Auto-level adds +'));
+    await page.locator('.pad-edit').nth(5).click({ force: true }); await page.click('#padMenu [data-action=edit]'); await page.waitForFunction(() => document.querySelector('#editLevelInfo').textContent.includes('Auto-level adds +'));
     const info = await page.locator('#editLevelInfo').textContent(); await page.click('#closeEdit');
     await page.uncheck('#autoLevel'); await until(page, async () => (await window.deck.getLibrary()).settings.autoLevel === false); await page.check('#autoLevel');
     await page.fill('#boardVolume', '160'); await until(page, async () => (await window.deck.getLibrary()).settings.boardVolume === 160); await page.fill('#boardVolume', '100');
@@ -215,7 +215,7 @@ async function main() {
     await page.locator('.pad-main').last().click(); await page.waitForFunction(() => document.querySelector('#toast').textContent.includes('could not be decoded'));
     await page.waitForFunction(() => document.querySelectorAll('.sound-pad.playing').length === 0);
     checks.push('Corrupt MP3 playback reports an actionable error and clears its playing state');
-    await page.locator('.pad-edit').last().click(); await page.click('#deleteSound'); await page.click('#deleteSound'); await page.waitForFunction(() => document.querySelectorAll('.sound-pad').length === 6);
+    await page.locator('.pad-edit').last().click(); await page.click('#padMenu [data-action=edit]'); await page.click('#deleteSound'); await page.click('#deleteSound'); await page.waitForFunction(() => document.querySelectorAll('.sound-pad').length === 6);
     // Replay buffer: rolling capture of system audio, saved on demand, trimmed, and added as a pad.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.getTitle() === 'PulseDeck').setSize(1024, 768));
     await page.click('#replayNav'); await page.check('#replayToggle');
@@ -255,7 +255,7 @@ async function main() {
     assert.deepEqual(order.slice(0, 4), ['Drum roll=Control+Alt+1', 'Air horn · test=Control+Alt+2', 'Good game=Control+Alt+3', 'Plot twist=Control+Alt+4'], JSON.stringify({ keysBefore, order }));
     assert.equal(await page.locator('.sound-pad').first().locator('.pad-key').textContent(), process.platform === 'darwin' ? 'Cmd+Option+1' : 'Ctrl+Alt+1');
     assert.ok(await app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered((process.platform === 'darwin' ? 'Command' : 'Control') + '+Alt+1')));
-    await page.locator('.pad-edit').first().click({ force: true }); assert.ok(await page.locator('#editHotkey').isDisabled()); await page.click('#closeEdit');
+    await page.locator('.pad-edit').first().click({ force: true }); await page.click('#padMenu [data-action=edit]'); assert.ok(await page.locator('#editHotkey').isDisabled()); await page.click('#closeEdit');
     checks.push('Dragging a pad reorders the board and the Ctrl+Alt digit shortcuts follow the new positions');
     await page.evaluate(() => { document.querySelector('#toast').hidden = true; });
     await page.screenshot({ path: path.join(results, 'soundboard.png') });

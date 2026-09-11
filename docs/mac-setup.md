@@ -24,6 +24,12 @@ Enable the replay buffer and allow system-audio capture when macOS asks. If acce
 
 Play some audio on the Mac. The replay meter should show Sound. Save a clip, trim it, preview through headphones, and add it to the board. Include my microphone adds the processed mic while the microphone is connected or being previewed. Keep the meeting's output off BlackHole to avoid feeding participants' voices back to them.
 
+## Recording and text to speech
+
+*Record a sound* uses the microphone permission you already granted. It records your physical microphone even while the broadcast is disconnected; choose physical headphones in the mixer if you want to monitor or preview a take.
+
+Text to speech uses macOS's installed voices through the system `say` command. Add or download voices in System Settings → Accessibility → Spoken Content → System voice → Manage Voices, then click *Refresh voices* in PulseDeck. Some premium or Siri voices are not available to other apps; PulseDeck lists only the voices macOS makes available. Speech is generated on your Mac and nothing is uploaded. To check the voices on your Mac, run `npm run test:tts-real`, which writes `test-results/tts-real-report.json`.
+
 ## Verification with real devices
 
 The automated tests simulate device endpoints. Before relying on PulseDeck in a meeting, finish these checks:

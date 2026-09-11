@@ -15,6 +15,8 @@
             <button class="nav active" id="boardNav" data-view="board"><span class="nav-icon">▦</span><span class="nav-text">Soundboard</span><small id="navCount">0</small></button>
             <button class="nav" id="voiceNav" data-view="voice"><span class="nav-icon">◉</span><span class="nav-text">Voice changer</span><small id="navVoice">Natural</small></button>
             <button class="nav" id="replayNav" data-view="replay"><span class="nav-icon">●</span><span class="nav-text">Replay buffer</span><small id="navReplay">Off</small></button>
+            <button class="nav" id="studioNav" data-view="studio"><span class="nav-icon">◧</span><span class="nav-text">Sound Studio</span><small id="navStudio">—</small></button>
+            <button class="nav" id="ttsNav" data-view="tts"><span class="nav-icon">❝</span><span class="nav-text">Text to speech</span><small id="navTts">—</small></button>
             <button class="nav" id="overlayNav"><span class="nav-icon">▣</span><span class="nav-text">Game overlay</span><small id="navOverlay">Off</small></button>
             <button class="nav" id="guideNav"><span class="nav-icon">↗</span><span class="nav-text">Setup guide</span></button>
         </nav>
@@ -32,6 +34,7 @@
             <div class="shortcut-row"><span>Show / hide overlay</span><span class="keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>O</kbd></span></div>
             <div class="shortcut-row"><span>Play pads 1–10</span><span class="keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>1–9, 0</kbd></span></div>
         </div>
+        <button class="text-button data-button" id="backupBtn" title="Copy your library to a backup folder, or merge a backup into it">Back up or restore…</button>
         <button class="text-button data-button" id="openData">Open library folder ↗</button>
     </aside>
 
@@ -54,12 +57,41 @@
                     <div class="library-toolbar">
                         <div class="tabs" role="tablist">
                             <button class="tab active" id="allTab" role="tab">All <span id="clipCount">0</span></button>
+                            <button class="tab" id="favTab" role="tab">★ Favorites <span id="favCount">0</span></button>
                             <button class="tab" id="loopTab" role="tab">Loops <span id="loopCount">0</span></button>
                         </div>
-                        <label class="search-field"><span class="search-icon">⌕</span><input id="search" type="search" placeholder="Search" aria-label="Search sounds"></label>
+                        <select id="collectionFilter" class="collection-select" aria-label="Collection"><option value="">All sounds</option></select>
+                        <button class="text-button" id="collectionMenuBtn" title="New, rename, or delete collections">Collections ▾</button>
+                        <label class="search-field"><span class="search-icon">⌕</span><input id="search" type="search" placeholder="Search names and tags" aria-label="Search sounds by name or tag"></label>
+                        <button class="text-button" id="selectModeBtn" aria-pressed="false" title="Select several pads">Select</button>
+                        <button class="secondary" id="queueBtn" aria-pressed="false" title="Show the playback queue">☰ Queue <span class="count-pill" id="queueCount">0</span></button>
                         <span class="toolbar-spacer"></span>
                         <button class="stop-button" id="stopAll" title="Stop every playing sound (Ctrl+Alt+Space)"><span>■</span> Stop all</button>
+                        <button class="secondary" id="ttsBoardBtn" title="Type text and play or save it as speech"><span class="btn-icon">❝</span>Text to speech</button>
+                        <button class="secondary" id="recordBtn" title="Record a new sound from your microphone"><span class="btn-icon">●</span>Record a sound</button>
                         <button class="primary" id="importBtn"><span class="btn-icon">＋</span>Add sounds</button>
+                    </div>
+
+                    <div class="selection-bar" id="selectionBar" hidden>
+                        <span id="selectionCount">0 selected</span>
+                        <button class="secondary" id="selectionCollection">Add to collection…</button>
+                        <button class="secondary" id="selectionQueue">Add to queue</button>
+                        <button class="text-button" id="selectionDone">Done</button>
+                    </div>
+
+                    <div class="queue-panel" id="queuePanel" hidden>
+                        <div class="queue-head">
+                            <h2>Queue <span class="count-pill" id="queueTotal">0</span></h2>
+                            <span class="field-help">Queue plays each sound once, even looping pads.</span>
+                            <span class="toolbar-spacer"></span>
+                            <button class="secondary" id="queuePlay">▶ Play</button>
+                            <button class="secondary" id="queueNext">⏭ Next</button>
+                            <button class="secondary" id="queueStop">■ Stop</button>
+                            <button class="text-button danger" id="queueClear">Clear</button>
+                        </div>
+                        <p class="field-help queue-message" id="queueMessage" role="status" hidden></p>
+                        <ol class="queue-list" id="queueList"></ol>
+                        <p class="field-help" id="queueEmpty">Add sounds with a pad’s menu → Add to queue, or select several pads.</p>
                     </div>
 
                     <div class="sound-grid" id="soundGrid"></div>
@@ -170,11 +202,157 @@
                                 <button class="secondary" id="selectAllBtn">Whole capture</button>
                                 <span class="toolbar-spacer"></span>
                                 <span class="editor-meta" id="selectionMeta"></span>
-                                <button class="primary" id="addCaptureBtn"><span class="btn-icon">＋</span>Add to soundboard</button>
+                                <button class="secondary" id="captureToStudio" title="Adds the selection to a Sound Studio project. The project keeps its own copy of the audio.">Use selection in Studio</button>
+                                <button class="secondary" id="addCaptureBtn" title="Saves only the selection as a new, shorter file. It cannot be expanded later.">Add trimmed copy</button>
+                                <button class="primary" id="addCaptureFullBtn" title="Copies the whole capture and plays only your selection. You can change the region later."><span class="btn-icon">＋</span>Add selection as pad (keep full audio)</button>
                             </div>
                         </div>
                     </div>
                     <p class="field-help replay-note">Captures what plays through your default output (your headphones) — so anyone in your Discord or game chat, plus the game itself. Nothing is recorded until you turn the buffer on, and only the last stretch is kept in memory until you save it.</p>
+                </section>
+
+                <!-- Text to speech view -->
+                <section class="view tts-panel" id="ttsView" hidden>
+                    <div class="tts-card">
+                        <div class="tts-head">
+                            <div><h2>Text to speech</h2><p class="field-help" id="ttsProvider">Loading voices…</p></div>
+                            <button class="text-button" id="ttsRefresh">↻ Refresh voices</button>
+                        </div>
+                        <label class="field-label" for="ttsText">Text</label>
+                        <textarea id="ttsText" rows="5" maxlength="6000" placeholder="Type what you want to say…"></textarea>
+                        <div class="tts-row"><span class="field-help">Unsaved text is not kept after PulseDeck closes.</span><span class="tts-count" id="ttsCount">0 / 2000</span></div>
+                        <p class="field-help warn-note" id="ttsLanguageNote" hidden></p>
+                        <div class="tts-controls">
+                            <label class="tts-voice">Voice<select id="ttsVoice"></select></label>
+                            <div class="tts-speed">
+                                <div class="volume-row"><label for="ttsSpeed">Speed</label><output id="ttsSpeedValue">Normal</output></div>
+                                <input id="ttsSpeed" type="range" min="-10" max="10" step="1" value="0">
+                                <div class="speed-presets"><button class="text-button" data-tts-speed="-4">Slow</button><button class="text-button" data-tts-speed="0">Normal</button><button class="text-button" data-tts-speed="4">Fast</button></div>
+                            </div>
+                            <div class="tts-volume">
+                                <div class="volume-row"><label for="ttsVolume">Volume</label><output id="ttsVolumeValue">100%</output></div>
+                                <input id="ttsVolume" type="range" min="0" max="150" value="100">
+                            </div>
+                        </div>
+                        <div class="tts-actions">
+                            <button class="secondary" id="ttsPreview" title="Plays in your headphones only">▶ Preview</button>
+                            <button class="primary" id="ttsSpeak" title="Plays through your broadcast like a sound pad">◉ Speak now</button>
+                            <button class="stop-button" id="ttsStop" disabled><span>■</span> Stop</button>
+                            <span class="toolbar-spacer"></span>
+                            <input id="ttsName" class="tts-name" maxlength="80" placeholder="Name for the sound" aria-label="Sound name">
+                            <button class="secondary" id="ttsInsert" title="Insert at the Sound Studio playhead">Insert in Studio</button>
+                            <button class="primary" id="ttsSave">Save as sound</button>
+                        </div>
+                        <p class="tts-status" id="ttsStatus" aria-live="polite">Type text, choose a voice, then preview or speak.</p>
+                    </div>
+                    <p class="field-help">Speech comes from the voices installed on this computer. Nothing is uploaded. Pitch is not offered because system voices apply it inconsistently.</p>
+                </section>
+
+                <!-- Sound Studio view -->
+                <section class="view studio-panel" id="studioView" hidden>
+                    <div class="studio-bar">
+                        <select id="studioProject" aria-label="Open a project"></select>
+                        <button class="secondary" id="studioNew">＋ New</button>
+                        <button class="primary" id="studioSave" disabled>Save</button>
+                        <button class="text-button" id="studioSaveCopy" disabled>Save as copy</button>
+                        <button class="text-button" id="studioRename" disabled>Rename</button>
+                        <button class="text-button danger" id="studioDelete" disabled>Delete</button>
+                        <span class="toolbar-spacer"></span>
+                        <span class="editor-meta" id="studioStatus">No project open</span>
+                        <button class="secondary" id="studioExport" disabled title="Render the project and save a WAV file">Export WAV</button>
+                        <button class="primary" id="studioRender" disabled title="Render the saved project to a new soundboard pad">Save as new sound</button>
+                    </div>
+                    <div class="studio-recovery" id="studioRecovery" hidden>
+                        <span id="studioRecoveryText"></span>
+                        <button class="secondary" id="studioRecoveryDiscard">Discard</button>
+                        <button class="primary" id="studioRecover">Recover</button>
+                    </div>
+                    <div class="studio-progress" id="studioProgress" hidden>
+                        <span>Rendering…</span><progress id="studioProgressBar" max="1" value="0"></progress><button class="text-button" id="studioCancelRender">Cancel</button>
+                    </div>
+                    <div class="studio-body">
+                        <aside class="studio-sources" aria-label="Sources">
+                            <div class="tabs source-tabs" role="tablist">
+                                <button class="tab active" data-source-tab="sounds" role="tab">Sounds</button>
+                                <button class="tab" data-source-tab="captures" role="tab">Replay captures</button>
+                                <button class="tab" data-source-tab="record" role="tab">Record mic</button>
+                                <button class="tab" data-source-tab="tts" role="tab">TTS</button>
+                            </div>
+                            <div class="source-panel" data-source-panel="tts" hidden>
+                                <p class="field-help">Type a phrase in Text to speech, then choose Insert in Studio to place it at the playhead.</p>
+                                <button class="primary" id="studioTtsBtn"><span class="btn-icon">❝</span>Open text to speech</button>
+                            </div>
+                            <div class="source-panel" data-source-panel="record" hidden>
+                                <p class="field-help">Record a take from your microphone, then insert it at the playhead or append it. The broadcast does not need to be connected.</p>
+                                <button class="primary" id="studioRecordBtn"><span class="btn-icon">●</span>Record from microphone…</button>
+                            </div>
+                            <label class="search-field" id="studioSearchWrap"><span class="search-icon">⌕</span><input id="studioSearch" type="search" placeholder="Search" aria-label="Search sources"></label>
+                            <div class="source-list" id="studioSourceList"></div>
+                            <div class="source-actions" id="sourceActions">
+                                <button class="secondary" id="srcPreview" disabled title="Plays in your headphones only">Preview</button>
+                                <button class="secondary" id="srcInsert" disabled title="Insert at the playhead, moving later audio on the track to the right">Insert at playhead</button>
+                                <button class="secondary" id="srcAppend" disabled title="Add after the last region on the selected track">Append</button>
+                                <button class="secondary" id="srcLayer" disabled title="Add at the playhead on a free track">Layer at playhead</button>
+                            </div>
+                            <div class="source-more">
+                                <button class="text-button" id="studioImportFile" disabled>＋ Import audio file…</button>
+                                <button class="text-button" id="studioGrab" disabled title="Adds what the replay buffer holds right now, without stopping it">● Grab recent audio</button>
+                            </div>
+                        </aside>
+                        <div class="studio-work" id="studioWork">
+                            <div class="studio-transport">
+                                <button class="secondary" id="studioPlay" disabled title="Preview in your headphones (Space)">▶ Preview</button>
+                                <button class="secondary" id="studioReturn" disabled title="Stop and return to the start">■ To start</button>
+                                <output class="studio-time" id="studioTime">0:00.000</output>
+                                <span class="toolbar-spacer"></span>
+                                <label class="check-row"><input type="checkbox" id="studioSnap" checked><span>Snap 10 ms</span></label>
+                                <label class="check-row"><input type="checkbox" id="studioSnapEdges" checked><span>Snap to edges</span></label>
+                                <button class="text-button" id="studioZoomOut" title="Zoom out (Ctrl + wheel)">−</button>
+                                <button class="text-button" id="studioZoomIn" title="Zoom in (Ctrl + wheel)">＋</button>
+                                <button class="text-button" id="studioUndo" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
+                                <button class="text-button" id="studioRedo" disabled title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+                                <button class="text-button" id="studioAddTrack" disabled>＋ Track</button>
+                            </div>
+                            <div class="studio-timeline" id="studioTimeline">
+                                <div class="studio-inner" id="studioInner">
+                                    <div class="ruler-row"><div class="ruler-corner">Tracks</div><div class="ruler" id="studioRuler"></div></div>
+                                    <div id="studioTracks"></div>
+                                    <div class="studio-range" id="studioRange" hidden></div>
+                                    <div class="studio-playhead" id="studioPlayhead"></div>
+                                </div>
+                                <div class="studio-empty" id="studioEmpty">
+                                    <h2>Build a new sound</h2>
+                                    <p>Layer and sequence board sounds, replay captures, and recordings, then save the result as a new pad.</p>
+                                    <button class="primary" id="studioEmptyNew">＋ New project</button>
+                                </div>
+                            </div>
+                            <div class="studio-inspector" aria-label="Selected region">
+                                <p class="field-help" id="inspectorEmpty">Select a region to edit it. Drag regions to move them, drag their edges to trim, and click the ruler to move the playhead.</p>
+                                <div class="inspector-fields" id="inspectorFields" hidden>
+                                    <label class="wide">Label<input id="inspLabel" maxlength="80"></label>
+                                    <label>Starts at (s)<input id="inspAt" type="number" min="0" max="180" step="0.001"></label>
+                                    <label>Source in (s)<input id="inspIn" type="number" min="0" step="0.001"></label>
+                                    <label>Source out (s)<input id="inspOut" type="number" min="0" step="0.001"></label>
+                                    <label>Gain (dB)<input id="inspGain" type="number" min="-60" max="12" step="0.5"></label>
+                                    <label>Pan (−1 to 1)<input id="inspPan" type="number" min="-1" max="1" step="0.05"></label>
+                                    <label>Fade in (ms)<input id="inspFadeIn" type="number" min="0" max="5000" step="1"></label>
+                                    <label>Fade out (ms)<input id="inspFadeOut" type="number" min="0" max="5000" step="1"></label>
+                                    <div class="inspector-meta"><span id="inspSource"></span><span>Length <strong id="inspLength"></strong></span></div>
+                                    <div class="action-group">
+                                        <button class="secondary" id="studioSplit" title="Split the selected region at the playhead">Split at playhead</button>
+                                        <button class="secondary" id="studioDuplicate">Duplicate</button>
+                                        <button class="text-button danger" id="studioRemove" title="Delete">Remove</button>
+                                    </div>
+                                </div>
+                                <div class="export-range-fields">
+                                    <label class="check-row"><input type="checkbox" id="rangeEnabled"><span>Export only part of the timeline</span></label>
+                                    <label>From (s)<input id="rangeStart" type="number" min="0" max="180" step="0.001" disabled></label>
+                                    <label>To (s)<input id="rangeEnd" type="number" min="0" max="180" step="0.001" disabled></label>
+                                    <button class="text-button" id="rangeFromRegion" disabled>Use selected region</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </section>
             </div>
 
@@ -209,6 +387,22 @@
                     <div class="volume-row"><label for="boardVolume">Soundboard</label><output id="boardVolumeValue">100%</output></div>
                     <input id="boardVolume" type="range" min="0" max="200" value="100" aria-label="Soundboard volume">
                     <div class="range-ends"><span>Quiet</span><span>Normal</span><span>Boost</span></div>
+                </div>
+                <label class="toggle-line" title="Lowers the soundboard while your microphone hears you. Your saved soundboard volume is not changed.">
+                    <span><strong>Lower sounds while I speak</strong><small id="duckState">Off</small></span>
+                    <span class="switch"><input type="checkbox" id="duckEnabled"><span></span></span>
+                </label>
+                <div class="duck-controls" id="duckControls" hidden>
+                    <div class="volume-row"><label for="duckThreshold">Speech threshold</label><output id="duckThresholdValue">−35 dB</output></div>
+                    <input id="duckThreshold" type="range" min="-60" max="-10" step="1" value="-35">
+                    <div class="volume-row"><label for="duckReduction">Lower by</label><output id="duckReductionValue">12 dB</output></div>
+                    <input id="duckReduction" type="range" min="0" max="24" step="1" value="12">
+                    <div class="volume-row"><label for="duckAttack">Attack</label><output id="duckAttackValue">20 ms</output></div>
+                    <input id="duckAttack" type="range" min="5" max="200" step="5" value="20">
+                    <div class="volume-row"><label for="duckHold">Hold</label><output id="duckHoldValue">150 ms</output></div>
+                    <input id="duckHold" type="range" min="0" max="1000" step="10" value="150">
+                    <div class="volume-row"><label for="duckRelease">Release</label><output id="duckReleaseValue">300 ms</output></div>
+                    <input id="duckRelease" type="range" min="50" max="2000" step="10" value="300">
                 </div>
                 <label class="toggle-line" title="Measures each sound and evens out its loudness so quiet clips are heard and loud ones don't blast">
                     <span><strong>Auto-level sounds</strong><small>Evens out quiet and loud clips</small></span>
@@ -266,6 +460,21 @@
 
             <label class="toggle-row"><span><strong>Loop until stopped</strong><small>Great for ambience and music beds.</small></span><span class="switch"><input type="checkbox" id="editLoop"><span></span></span></label>
 
+            <label for="editTrigger">When triggered while playing</label>
+            <select id="editTrigger">
+                <option value="toggle">Toggle: stop it</option>
+                <option value="restart">Restart from the beginning</option>
+                <option value="overlap">Overlap: start another copy</option>
+            </select>
+            <p class="field-help" id="editTriggerHelp">Overlap is not available for looping sounds.</p>
+
+            <label for="editGroup">Exclusive group</label>
+            <div class="hotkey-field"><select id="editGroup"></select><button type="button" class="text-button" id="manageGroups">Manage…</button></div>
+            <p class="field-help">Starting a sound stops the other sounds in its group. Other sounds keep playing.</p>
+
+            <label for="editTags">Tags</label>
+            <input id="editTags" maxlength="800" autocomplete="off" placeholder="Comma separated, e.g. hype, intro">
+
             <div class="dialog-actions">
                 <button type="button" id="deleteSound" class="danger">Remove sound</button>
                 <button class="primary" type="submit">Save changes</button>
@@ -308,9 +517,83 @@
             <strong>Using the game overlay</strong>
             <p>Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>O</kbd> (or click <em>Overlay</em>) for a small always-on-top deck you can click while playing. Drag it by its title bar, resize from any edge, and set its transparency at the bottom. It stays above windowed and borderless-windowed games; games in exclusive fullscreen cover every overlay, so switch the game's display mode to <em>Borderless</em> or <em>Windowed fullscreen</em>.</p>
         </div>
+        <div class="guide-note">
+            <strong>Previews stay in your headphones</strong>
+            <p>The playback-region editor, Sound Studio, the recorder, and Text to speech preview only through the headphones chosen under <em>Headphones</em> in the mixer. They never play through the broadcast output, and if no headphones are chosen PulseDeck asks you to pick them instead of using your speakers. <em>Speak now</em> and pads are the only things that reach your apps.</p>
+            <p>Other programs that record your computer's system audio, including PulseDeck's own replay buffer, can hear whatever plays through your default output. If that output is your headphones, they may also record previews. Pick a different default output while previewing if that matters.</p>
+        </div>
     </dialog>
 
-    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <div id="padMenu" class="menu" role="menu" hidden></div>
+
+    <dialog id="recordDialog">
+        <div class="dialog-title">
+            <div><div class="eyebrow">Record from microphone</div><h2>New recording</h2></div>
+            <button type="button" class="icon-button" id="closeRecord" aria-label="Close">×</button>
+        </div>
+        <label for="recMic">Microphone</label>
+        <select id="recMic"></select>
+        <div class="rec-modes" role="radiogroup" aria-label="What to record">
+            <label class="check-row"><input type="radio" name="recMode" value="dry" checked><span>Dry microphone</span></label>
+            <label class="check-row"><input type="radio" name="recMode" value="processed"><span>With current voice effect (<span id="recEffectName">Natural</span>)</span></label>
+        </div>
+        <p class="field-help">Recording continues while your live mic is muted. Nothing is broadcast while you record, and the replay buffer keeps running on its own.</p>
+        <label class="check-row"><input type="checkbox" id="recMonitor"><span>Monitor in headphones while recording</span></label>
+        <div class="rec-meter"><div class="meter"><div id="recLevel"></div></div><output id="recTime">0:00.000</output><span class="field-help">up to 3:00</span></div>
+        <p class="form-error" id="recError" role="alert" hidden></p>
+        <p class="field-help" id="recStatus" aria-live="polite"></p>
+        <div class="rec-controls">
+            <button type="button" class="primary" id="recRecord">● Record</button>
+            <button type="button" class="secondary" id="recStop" disabled>■ Stop</button>
+            <button type="button" class="secondary" id="recPreview" disabled title="Plays in your headphones only">▶ Preview</button>
+            <button type="button" class="text-button danger" id="recDiscard" disabled>Discard</button>
+        </div>
+        <label for="recName">Name</label>
+        <input id="recName" maxlength="80" autocomplete="off">
+        <div class="dialog-actions">
+            <div class="action-group">
+                <button type="button" class="secondary" id="recInsert" disabled hidden>Insert at playhead</button>
+                <button type="button" class="secondary" id="recAppend" disabled>Add to Studio project</button>
+            </div>
+            <button type="button" class="primary" id="recSave" disabled>Save as pad</button>
+        </div>
+    </dialog>
+
+    <dialog id="regionDialog" class="wide-dialog">
+        <div class="dialog-title">
+            <div><div class="eyebrow">Playback region</div><h2 id="regionTitle">Sound</h2></div>
+            <button type="button" class="icon-button" id="closeRegion" aria-label="Close">×</button>
+        </div>
+        <p class="field-help">Choose the part this pad plays. The original audio is kept, so you can widen the region again at any time.</p>
+        <div class="region-wave" id="regionWaveWrap"><canvas id="regionWave" tabindex="-1" aria-label="Waveform. Drag the handles to change the region."></canvas></div>
+        <div class="region-zoom">
+            <input id="regionScroll" type="range" min="0" max="1000" value="0" aria-label="Scroll the waveform">
+            <button type="button" class="text-button" id="regionZoomOut" title="Zoom out">−</button>
+            <button type="button" class="text-button" id="regionZoomIn" title="Zoom in (Ctrl + mouse wheel)">＋</button>
+            <button type="button" class="text-button" id="regionZoomSel">Zoom to region</button>
+            <button type="button" class="text-button" id="regionZoomFit">Whole sound</button>
+        </div>
+        <div class="region-fields">
+            <label>Start (seconds)<input id="regionStart" type="number" min="0" step="0.001" inputmode="decimal"></label>
+            <label>End (seconds)<input id="regionEnd" type="number" min="0" step="0.001" inputmode="decimal"></label>
+            <label>Fade in (ms)<input id="regionFadeIn" type="number" min="0" max="5000" step="1" value="0"></label>
+            <label>Fade out (ms)<input id="regionFadeOut" type="number" min="0" max="5000" step="1" value="0"></label>
+        </div>
+        <div class="region-stats"><span>Plays <strong id="regionPlayed">—</strong></span><span>Source <strong id="regionSource">—</strong></span></div>
+        <p class="form-error" id="regionError" role="alert" hidden></p>
+        <div class="dialog-actions">
+            <div class="action-group">
+                <button type="button" class="secondary" id="regionPreview" title="Plays in your headphones only"><span class="btn-icon">▶</span><span>Play selection</span></button>
+                <button type="button" class="secondary" id="regionReset">Reset to full clip</button>
+            </div>
+            <div class="action-group">
+                <button type="button" class="text-button" id="regionCancel">Cancel</button>
+                <button type="button" class="primary" id="regionSave">Save region</button>
+            </div>
+        </div>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden><span id="toastText"></span><button type="button" id="toastAction" class="toast-action" hidden></button></div>
     <div class="drop-overlay" id="dropOverlay" hidden><span>＋</span><h2>Drop sounds into your library</h2><p>Your files will be copied and saved locally.</p></div>
     <script type="module" src="renderer.js"></script>
 </body>

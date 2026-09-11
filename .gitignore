@@ -7,3 +7,6 @@ PulseDeck Data/
 *.log
 .DS_Store
 Thumbs.db
+
+# Local implementation briefs and progress notes
+/workorders/
