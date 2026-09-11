@@ -648,9 +648,11 @@ export class AudioEngine extends EventTarget {
      * or pressing Stop all ends it. Callers connect sources to `session.input` and register them with `session.add`.
      */
     async startAudition(deviceId) {
-        await this.init();
-        this.checkPreviewDevice(deviceId);
         this.stopAudition();
+        const epoch = this.auditionEpoch;
+        await this.init();
+        if (epoch !== this.auditionEpoch) throw Object.assign(new Error('Preview cancelled.'), { code: 'CANCELLED' });
+        this.checkPreviewDevice(deviceId);
         const input = this.context.createGain();
         input.connect(this.previewBus);
         let resolve;
@@ -675,6 +677,7 @@ export class AudioEngine extends EventTarget {
     /** Previews part of a decoded buffer with the same region, fade, and anti-click rules as pads. */
     async auditionBuffer(buffer, { deviceId, playback = null, gain = 1 } = {}) {
         const session = await this.startAudition(deviceId);
+        if (session.stopped) throw Object.assign(new Error('Preview cancelled.'), { code: 'CANCELLED' });
         const ctx = this.context, region = resolveRegion(playback, buffer);
         const source = session.add(ctx.createBufferSource()), env = ctx.createGain(), level = ctx.createGain();
         source.buffer = buffer; level.gain.value = gain;
@@ -693,6 +696,7 @@ export class AudioEngine extends EventTarget {
     }
 
     stopAudition(reason = 'stopped') {
+        this.auditionEpoch = (this.auditionEpoch || 0) + 1;
         const session = this.auditionSession;
         if (!session) return;
         this.auditionSession = null;

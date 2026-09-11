@@ -114,6 +114,17 @@ function normalizeDucking(value, base = DUCKING_DEFAULTS) {
   };
 }
 
+/** Renames over a target, retrying briefly when Windows reports a transient lock (an antivirus scanner or the indexer holding a just-written file). */
+async function replaceFile(from, to) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await fs.rename(from, to); }
+    catch (error) {
+      if (attempt >= 5 || !['EPERM', 'EBUSY', 'EACCES'].includes(error.code)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 15 * 2 ** attempt));
+    }
+  }
+}
+
 class Library {
   constructor(root) {
     this.root = root;
@@ -205,16 +216,28 @@ class Library {
     return this.exclusive(async () => {
       const before = JSON.stringify(this.state);
       const created = [];
+      const rollback = [], cleanup = [];
+      const transaction = {
+        onRollback: action => rollback.push(action),
+        afterCommit: action => cleanup.push(action)
+      };
+      let result;
       try {
-        const result = await fn(created);
+        result = await fn(created, transaction);
         await this.commit();
-        return result;
       } catch (error) {
         // Validation failures change nothing; keep object identity. Otherwise return to the last valid state.
         if (JSON.stringify(this.state) !== before) this.state = JSON.parse(before);
+        for (const action of rollback.reverse()) {
+          try { await action(); }
+          catch (recoveryError) { error.message += ` Recovery also failed: ${recoveryError.message}. Keep the recovery files in your data folder.`; }
+        }
         for (const file of created) await fs.rm(file, { force: true, recursive: true }).catch(() => {});
         throw error;
       }
+      // A failed cleanup cannot undo an already committed operation. Leave its recovery files for retry.
+      for (const action of cleanup) await action().catch(() => {});
+      return result;
     });
   }
 
@@ -247,7 +270,7 @@ class Library {
     const write = this.queue.catch(() => {}).then(async () => {
       const temp = path.join(this.root, 'library.json.tmp');
       await fs.writeFile(temp, data, 'utf8');
-      await fs.rename(temp, path.join(this.root, 'library.json'));
+      await replaceFile(temp, path.join(this.root, 'library.json'));
     });
     this.queue = write;
     return write;
@@ -540,4 +563,4 @@ class Library {
     });
   }
 }
-module.exports = { Library, DEFAULTS, DUCKING_DEFAULTS, LIMITS, LIBRARY_SCHEMA, SchemaError, shortcut, SLOT_KEYS, validatePlayback, normalizeTags, isId, COLORS };
+module.exports = { Library, DEFAULTS, DUCKING_DEFAULTS, LIMITS, LIBRARY_SCHEMA, SchemaError, shortcut, SLOT_KEYS, validatePlayback, normalizeTags, isId, COLORS, replaceFile };

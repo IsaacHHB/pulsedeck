@@ -137,3 +137,57 @@ test('startup garbage-collects unreferenced audio and interrupted creations, and
   lib.state.projects.push(...Array.from({ length: 99 }, () => ({ id: crypto.randomUUID(), name: 'x', createdAt: 0, updatedAt: 0, revision: 1, saved: true })));
   await assert.rejects(store.create('One too many'), /100 projects/);
 });
+
+test('failed library commits roll back project save, rename, delete and draft discard without losing audio', async () => {
+  const { store, lib, root } = await setup();
+  const original = await store.create('Keep me');
+  const asset = await store.addAsset(original.id, wav(0.2));
+  const saved = await store.save(original.id, withRegion(original, asset));
+  await store.saveDraft(saved.id, { ...saved, name: 'Unsaved edit' });
+  const folder = path.join(root, 'projects', saved.id);
+  const savedBytes = await fs.readFile(path.join(folder, 'project.json'));
+  const draftBytes = await fs.readFile(path.join(folder, 'draft.json'));
+  const state = structuredClone(lib.state), commit = lib.commit.bind(lib);
+  for (const operation of [
+    () => store.save(saved.id, { ...saved, name: 'New revision' }),
+    () => store.rename(saved.id, 'New name'),
+    () => store.remove(saved.id),
+    () => store.discard(saved.id)
+  ]) {
+    lib.commit = async () => { throw new Error('Simulated index write failure'); };
+    await assert.rejects(operation(), /index write failure/);
+    lib.commit = commit;
+    assert.deepEqual(lib.state, state);
+    assert.deepEqual(await fs.readFile(path.join(folder, 'project.json')), savedBytes);
+    assert.deepEqual(await fs.readFile(path.join(folder, 'draft.json')), draftBytes);
+    assert.deepEqual(await store.readAsset(saved.id, asset.id), wav(0.2));
+  }
+  await store.save(saved.id, saved);
+  assert.equal((await store.open(saved.id)).draft, null, 'a later successful mutation still works');
+});
+
+test('failed discard preserves a never-saved take, and corrupt project metadata never garbage-collects its audio', async () => {
+  const { store, lib, root } = await setup();
+  const project = await store.create('Only copy');
+  const asset = await store.addAsset(project.id, wav(0.2));
+  await store.saveDraft(project.id, withRegion(project, asset));
+  const commit = lib.commit.bind(lib);
+  lib.commit = async () => { throw new Error('disk full'); };
+  await assert.rejects(store.discard(project.id), /disk full/);
+  lib.commit = commit;
+  assert.equal((await store.open(project.id)).project.regions.length, 1);
+  const folder = path.join(root, 'projects', project.id);
+  await fs.writeFile(path.join(folder, 'draft.json'), '{broken');
+  assert.equal(await store.collect(project.id), 0);
+  assert.deepEqual(await store.readAsset(project.id, asset.id), wav(0.2));
+});
+
+test('saved metadata prunes removed assets so a project can reopen and save after collection', async () => {
+  const { store } = await setup();
+  const p = await store.create('Pruned');
+  const a = await store.addAsset(p.id, wav(0.2)), b = await store.addAsset(p.id, wav(0.3));
+  const saved = await store.save(p.id, { ...withRegion(p, a), assets: [a, b] });
+  assert.deepEqual(saved.assets.map(x => x.id), [a.id]);
+  await store.close(p.id);
+  await store.save(p.id, (await store.open(p.id)).project);
+});

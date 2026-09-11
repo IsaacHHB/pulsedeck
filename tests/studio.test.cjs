@@ -104,3 +104,15 @@ test('project validation rejects bad schema, missing assets, and bad export rang
     assert.equal(m.wavBytes(48000 * 180, 2), 44 + 48000 * 180 * 4);
     assert.ok(m.wavBytes(48000 * 180, 2) > m.STUDIO_LIMITS.padBytes, 'a 3-minute stereo render exceeds the 30 MB pad limit');
 });
+
+test('muting the final track preserves the timeline duration and ripple insert keeps fades on outer edges', async () => {
+    const { m, p: base } = await project();
+    let { project: p, regionId } = m.placeAsset(base, { assetId: 'a2', bounds: { fadeInMs: 800, fadeOutMs: 800 } });
+    const inserted = m.placeAsset(p, { assetId: 'a1', mode: 'insert', playhead: 0.2 }).project;
+    const left = inserted.regions.find(r => r.id === regionId);
+    assert.equal(left.fadeInMs, 200);
+    assert.equal(left.fadeOutMs, 0);
+    assert.equal(m.checkProject(inserted), inserted);
+    p = m.updateTrack(p, p.tracks[0].id, { mute: true });
+    assert.deepEqual(m.renderRange(p), { startSeconds: 0, endSeconds: 2 });
+});

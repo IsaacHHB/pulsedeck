@@ -92,6 +92,8 @@ The desktop tests drive the real app with Playwright; on Linux run them under `x
 | `tests/` | Automated checks |
 | `.github/workflows/` | CI tests and tagged releases |
 
+`tests/feature-races.cjs` adds Electron checks for edits during disk saves, switching projects during audio decoding, and cancellation during preview, recording-monitor, and speech startup. It runs with `npm test` and in the three-platform CI matrix. Persistence tests inject failed library commits to verify that project files, recovery drafts, and microphone takes remain recoverable.
+
 ## Releasing
 
 See [DISTRIBUTION.md](DISTRIBUTION.md). In short: bump the version, push a `vX.Y.Z` tag, and GitHub Actions builds the installer, publishes the release, and every installed copy updates itself.

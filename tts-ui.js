@@ -53,6 +53,7 @@ export function createTtsUI({ engine, getState, saveSettings, previewDevice, toa
 
     /** Any edit invalidates the previous result for later actions. */
     function edited() {
+        if (generating) stop('Text or voice changed. Generate the updated phrase when ready.');
         if (result && result.key !== keyOf(request())) result = null;
         if (status === 'ready' && !result) setStatus('idle'); else sync();
     }
@@ -110,10 +111,13 @@ export function createTtsUI({ engine, getState, saveSettings, previewDevice, toa
     const gain = () => Number($('ttsVolume').value) / 100;
 
     async function preview() {
+        const token = ++speakToken;
         const device = previewDevice();
         const r = await ensureResult();
-        if (speaking) return;
-        previewing = await engine.auditionBuffer(r.buffer, { deviceId: device, gain: gain() });
+        if (speaking || token !== speakToken) return;
+        const session = await engine.auditionBuffer(r.buffer, { deviceId: device, gain: gain() });
+        if (token !== speakToken) { if (engine.auditionSession === session) engine.stopAudition(); return; }
+        previewing = session;
         previewing.owner = 'tts';
         setStatus('previewing');
     }
@@ -136,7 +140,8 @@ export function createTtsUI({ engine, getState, saveSettings, previewDevice, toa
     /** Stop cancels generation, pending auto-play, speech, and preview. */
     function stop(message) {
         speakToken++;
-        if (generating) { const id = generating.requestId; generation++; generating = null; window.deck.ttsCancel(id).catch(() => {}); }
+        generation++;
+        if (generating) { const id = generating.requestId; generating = null; window.deck.ttsCancel(id).catch(() => {}); }
         if (speaking) { engine.stop('tts', 'stop'); speaking = null; }
         if (previewing && engine.auditionSession === previewing) engine.stopAudition();
         previewing = null;

@@ -25,10 +25,10 @@ jobs:
         run: node --test tests/*.test.cjs
       - name: Voice DSP, desktop integration, and feature tests (Electron under Xvfb)
         if: runner.os == 'Linux'
-        run: xvfb-run -a node tests/voice-effects.cjs && xvfb-run -a node tests/integration.cjs && xvfb-run -a node tests/features.cjs
+        run: xvfb-run -a node tests/voice-effects.cjs && xvfb-run -a node tests/integration.cjs && xvfb-run -a node tests/features.cjs && xvfb-run -a node tests/feature-races.cjs
       - name: Voice DSP, desktop integration, and feature tests (Mac and Windows)
         if: runner.os != 'Linux'
-        run: node tests/voice-effects.cjs && node tests/integration.cjs && node tests/features.cjs
+        run: node tests/voice-effects.cjs && node tests/integration.cjs && node tests/features.cjs && node tests/feature-races.cjs
       - name: Real system voices (evidence for the speech adapters; does not block)
         if: runner.os != 'Linux'
         continue-on-error: true

@@ -2,7 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { assertCanonicalWav } = require('./wav-header.cjs');
-const { isId } = require('./library.cjs');
+const { isId, replaceFile } = require('./library.cjs');
 
 /**
  * Sound Studio project storage: projects/<uuid>/project.json, projects/<uuid>/draft.json (recovery),
@@ -17,8 +17,30 @@ const fail = message => { throw new Error(message); };
 
 async function writeAtomic(file, data) {
   const temp = `${file}.${randomUUID()}.tmp`;
-  try { await fs.writeFile(temp, data); await fs.rename(temp, file); }
+  try { await fs.writeFile(temp, data); await replaceFile(temp, file); }
   catch (error) { await fs.rm(temp, { force: true }).catch(() => {}); throw error; }
+}
+
+/** Keep the previous file until the library index commit succeeds; rollback uses rename, not another write. */
+async function replaceTransactional(file, data, transaction) {
+  const backup = `${file}.${randomUUID()}.rollback`;
+  const hadFile = await exists(file);
+  if (hadFile) await fs.copyFile(file, backup, fs.constants.COPYFILE_EXCL);
+  transaction.onRollback(async () => {
+    if (hadFile) await replaceFile(backup, file);
+    else await fs.rm(file, { force: true });
+  });
+  transaction.afterCommit(() => fs.rm(backup, { force: true }));
+  await writeAtomic(file, data);
+}
+
+/** Move deletions aside until metadata is durable. A failed commit can restore them without rewriting audio. */
+async function removeTransactional(file, transaction) {
+  if (!await exists(file)) return;
+  const backup = `${file}.${randomUUID()}.rollback`;
+  await replaceFile(file, backup);
+  transaction.onRollback(() => replaceFile(backup, file));
+  transaction.afterCommit(() => fs.rm(backup, { recursive: true, force: true }));
 }
 
 /** Reads a WAV header from disk without loading all audio. */
@@ -28,15 +50,7 @@ async function wavInfo(file) {
     const { size } = await handle.stat();
     const head = Buffer.alloc(Math.min(size, 65536));
     await handle.read(head, 0, head.length, 0);
-    if (head.length < 44 || head.toString('ascii', 0, 4) !== 'RIFF' || head.toString('ascii', 8, 12) !== 'WAVE') fail('An audio file in this project is damaged.');
-    let offset = 12, fmt = null;
-    while (offset + 8 <= head.length) {
-      const id = head.toString('ascii', offset, offset + 4), chunk = head.readUInt32LE(offset + 4), body = offset + 8;
-      if (id === 'fmt ') fmt = { channels: head.readUInt16LE(body + 2), sampleRate: head.readUInt32LE(body + 4), blockAlign: head.readUInt16LE(body + 12) };
-      else if (id === 'data' && fmt) { const frames = Math.floor(Math.min(chunk, size - body) / fmt.blockAlign); return { ...fmt, frames, duration: frames / fmt.sampleRate, bytes: size }; }
-      offset = body + chunk + (chunk % 2);
-    }
-    fail('An audio file in this project is damaged.');
+    return { ...assertCanonicalWav(head, { fileSize: size, sampleRate: 48000, maxSeconds: LIMITS.assetSeconds, maxBytes: LIMITS.assetBytes }), bytes: size };
   } finally { await handle.close(); }
 }
 
@@ -48,11 +62,16 @@ function normalizeProject(input, assetInfo) {
   if (!name) fail('Name the project.');
   if (name.length > 80) fail('Project names can be at most 80 characters.');
   if (!Array.isArray(input.assets) || input.assets.length > 256) fail('The project audio list is invalid.');
+  const usedAssets = new Set((Array.isArray(input.regions) ? input.regions : []).map(r => r.assetId));
   const assets = [];
+  let audioBytes = 0;
   for (const a of input.assets) {
     if (!isId(a?.id) || a.file !== `${a.id}.wav` || assets.some(x => x.id === a.id)) fail('The project audio list is invalid.');
+    if (!usedAssets.has(a.id)) continue;
     const info = assetInfo.get(a.id);
     if (!info) fail(`Audio for “${text(a.name, 80) || 'a region'}” is missing from this project.`);
+    audioBytes += info.bytes || 0;
+    if (audioBytes > LIMITS.projectBytes) fail('A project can hold at most 256 MB of audio.');
     const origin = a.origin && typeof a.origin === 'object' ? { kind: text(a.origin.kind, 16), id: isId(a.origin.id) ? a.origin.id : undefined, label: text(a.origin.label, 120) || undefined } : null;
     assets.push({ id: a.id, file: a.file, name: text(a.name, 80) || 'Audio', duration: info.duration, channels: info.channels, origin });
   }
@@ -184,13 +203,13 @@ class ProjectStore {
 
   /** Explicit save: validates, increments the revision, writes atomically, and clears the recovery draft. */
   save(id, input) {
-    return this.library.mutate(async () => {
+    return this.library.mutate(async (_created, transaction) => {
       const entry = this.entry(id);
       const project = normalizeProject({ ...input, id }, await this.assetInfo(id));
       project.revision = (entry.revision || 0) + 1;
-      await writeAtomic(path.join(this.dir(id), 'project.json'), JSON.stringify(project, null, 2));
+      await replaceTransactional(path.join(this.dir(id), 'project.json'), JSON.stringify(project, null, 2), transaction);
       Object.assign(entry, { name: project.name, updatedAt: project.updatedAt, revision: project.revision, saved: true });
-      await fs.rm(path.join(this.dir(id), 'draft.json'), { force: true });
+      await removeTransactional(path.join(this.dir(id), 'draft.json'), transaction);
       return project;
     });
   }
@@ -209,11 +228,11 @@ class ProjectStore {
 
   /** Drops the recovery draft (Discard). A project that was never saved is removed entirely. */
   discard(id) {
-    return this.library.mutate(async () => {
+    return this.library.mutate(async (_created, transaction) => {
       const entry = this.entry(id);
-      if (!entry.saved) { await fs.rm(this.dir(id), { recursive: true, force: true }); this.library.state.projects = this.library.state.projects.filter(p => p.id !== id); return { removed: true }; }
-      await fs.rm(path.join(this.dir(id), 'draft.json'), { force: true });
-      await this.collect(id);
+      if (!entry.saved) { await removeTransactional(this.dir(id), transaction); this.library.state.projects = this.library.state.projects.filter(p => p.id !== id); return { removed: true }; }
+      await removeTransactional(path.join(this.dir(id), 'draft.json'), transaction);
+      transaction.afterCommit(() => this.collect(id));
       return { removed: false };
     });
   }
@@ -235,7 +254,7 @@ class ProjectStore {
   }
 
   rename(id, name) {
-    return this.library.mutate(async () => {
+    return this.library.mutate(async (_created, transaction) => {
       const entry = this.entry(id);
       const clean = text(name, 1000);
       if (!clean) fail('Name the project.');
@@ -244,7 +263,13 @@ class ProjectStore {
       if (await exists(file)) {
         const project = JSON.parse(await fs.readFile(file, 'utf8'));
         project.name = clean;
-        await writeAtomic(file, JSON.stringify(project, null, 2));
+        await replaceTransactional(file, JSON.stringify(project, null, 2), transaction);
+      }
+      const draftFile = path.join(this.dir(id), 'draft.json');
+      if (await exists(draftFile)) {
+        const draft = JSON.parse(await fs.readFile(draftFile, 'utf8'));
+        draft.project.name = clean;
+        await replaceTransactional(draftFile, JSON.stringify(draft), transaction);
       }
       entry.name = clean;
       return this.list();
@@ -252,10 +277,10 @@ class ProjectStore {
   }
 
   remove(id) {
-    return this.library.mutate(async () => {
+    return this.library.mutate(async (_created, transaction) => {
       this.entry(id);
       this.library.state.projects = this.library.state.projects.filter(p => p.id !== id);
-      await fs.rm(this.dir(id), { recursive: true, force: true });
+      await removeTransactional(this.dir(id), transaction);
       return this.list();
     });
   }
@@ -270,7 +295,10 @@ class ProjectStore {
       try {
         const data = JSON.parse(await fs.readFile(path.join(folder, name), 'utf8'));
         for (const region of (data.project || data).regions || []) needed.add(region.assetId);
-      } catch { /* missing */ }
+      } catch (error) {
+        // Corrupt metadata is recoverable by the user; it is never evidence that all its audio is garbage.
+        if (error.code !== 'ENOENT') return 0;
+      }
     }
     let names = [];
     try { names = await fs.readdir(path.join(folder, 'assets')); } catch { return 0; }

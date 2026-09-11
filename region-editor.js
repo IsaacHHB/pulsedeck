@@ -75,8 +75,10 @@ export function createRegionEditor({ engine, previewDevice, onSave, onError }) {
     $('regionPreview').onclick = async () => {
         if (engine.auditionSession?.owner === 'region') { stopPreview(); return; }
         try {
+            const mine = token;
             const playback = currentPlayback();
             const session = await engine.auditionBuffer(buffer, { deviceId: previewDevice(), playback, gain: engine.clipGain({ ...clip, playback }) });
+            if (mine !== token || !dialog.open) { if (engine.auditionSession === session) engine.stopAudition(); return; }
             session.owner = 'region';
             $('regionPreview').querySelector('span:last-child').textContent = 'Stop';
             const region = resolveRegion(playback, buffer);

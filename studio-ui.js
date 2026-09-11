@@ -21,7 +21,7 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     const decoded = new Map();      // `${projectId}:${assetId}` → AudioBuffer, least recently used first
     let current = null;             // { id, project, dirty, unsaved, selectedRegion, selectedTrack, playhead }
     let sourceTab = 'sounds', selectedSource = null, pps = 60, drag = null, playFrame = 0, draftTimer = null;
-    let rendering = null, renderToken = 0, openToken = 0, previewSession = null, previewInfo = null;
+    let rendering = null, renderToken = 0, openToken = 0, previewSession = null, previewInfo = null, previewToken = 0, renderedWidth = -1;
 
     const run = async action => { try { return await action(); } catch (error) { reportError(error); return undefined; } };
     const projects = () => getState().projects || [];
@@ -58,10 +58,10 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
 
     function scheduleDraft() {
         clearTimeout(draftTimer);
-        const id = current?.id;
+        const target = current, id = target?.id;
         draftTimer = setTimeout(() => {
-            if (!current || current.id !== id || !current.dirty) return;
-            window.deck.saveProjectDraft(id, current.project).catch(error => setStatus(`Recovery draft not saved: ${error.message}`));
+            if (current !== target || !target.dirty) return;
+            window.deck.saveProjectDraft(id, target.project).catch(error => { if (current === target) setStatus(`Recovery draft not saved: ${error.message}`); });
         }, 1000);
     }
 
@@ -82,7 +82,7 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     async function confirmUnsaved(action = 'continue') {
         if (!current || (!current.dirty && !(current.unsaved && current.project.regions.length))) return true;
         const choice = await askChoice({ eyebrow: 'Sound Studio', title: `Save changes to “${current.project.name}”?`, message: `You have unsaved edits. Save them before you ${action}, discard them, or cancel.`, choices: [{ id: 'cancel', label: 'Cancel' }, { id: 'discard', label: 'Discard', danger: true }, { id: 'save', label: 'Save', primary: true }] });
-        if (choice === 'save') { await save(); return true; }
+        if (choice === 'save') { await save(); return !current?.dirty; }
         if (choice === 'discard') { await discardCurrent(); return true; }
         return false;
     }
@@ -90,6 +90,7 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     async function closeCurrent() {
         if (!current) return;
         stopPreview();
+        cancelRender();
         clearTimeout(draftTimer);
         const id = current.id;
         current = null; history.clear(); selectedSourceReset();
@@ -153,19 +154,34 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
 
     async function save() {
         if (!current) return;
-        model.checkProject(current.project);
+        const target = current;
+        if (target.saving) return target.saving;
+        const submitted = model.checkProject(target.project);
         clearTimeout(draftTimer);
-        const saved = await window.deck.saveProject(current.id, current.project);
-        current.project = saved; current.dirty = false; current.unsaved = false;
-        await refreshProjects();
-        renderAll();
-        return saved;
+        target.saving = (async () => {
+            try {
+                const saved = await window.deck.saveProject(target.id, submitted);
+                if (current === target) {
+                    // Editing is allowed during disk IO. Only replace the exact snapshot that was submitted.
+                    if (target.project === submitted) { target.project = saved; target.dirty = false; }
+                    else { target.project = { ...target.project, revision: saved.revision }; target.dirty = true; scheduleDraft(); }
+                    target.unsaved = false;
+                    await refreshProjects();
+                    if (current === target) renderAll();
+                }
+                return saved;
+            } finally { target.saving = null; }
+        })();
+        return target.saving;
     }
 
     async function saveCopy() {
+        const target = current;
         const answer = await askText({ eyebrow: 'Sound Studio', title: 'Save as copy', label: 'Copy name', value: `${current.project.name} copy`, confirm: 'Save copy' });
-        if (!answer) return;
-        const copy = await window.deck.saveProjectCopy(current.id, current.project, answer.text);
+        if (!answer || current !== target) return;
+        const submitted = target.project;
+        const copy = await window.deck.saveProjectCopy(target.id, submitted, answer.text);
+        if (current !== target || target.project !== submitted) { await refreshProjects(); toast(`Saved “${copy.name}”. Your current edits are still open.`); return; }
         const originalName = current.project.name;
         current.dirty = false;
         await window.deck.discardProject(current.id).catch(() => {});
@@ -176,11 +192,13 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     }
 
     async function rename() {
+        const target = current;
         const answer = await askText({ eyebrow: 'Sound Studio', title: 'Rename project', label: 'Project name', value: current.project.name, confirm: 'Rename' });
-        if (!answer) return;
-        current.project = model.renameProject(current.project, answer.text);
-        await window.deck.renameProject(current.id, answer.text);
-        if (current.dirty) scheduleDraft();
+        if (!answer || current !== target) return;
+        edit(p => model.renameProject(p, answer.text));
+        await window.deck.renameProject(target.id, answer.text);
+        if (current !== target) return;
+        scheduleDraft();
         await refreshProjects(); renderAll();
     }
 
@@ -208,11 +226,16 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
 
     /* ─── Sources ─── */
 
-    async function addAsset(canonical, meta, place) {
-        const asset = await window.deck.addProjectAsset(current.id, canonical.bytes, meta);
+    async function addAsset(canonical, meta, place, target = current) {
+        if (!target || current !== target) return null;
+        const trackId = target.selectedTrack, playhead = target.playhead;
+        const asset = await window.deck.addProjectAsset(target.id, canonical.bytes, meta);
+        // A project may have been reopened while this write was pending. Its next normal close/startup
+        // can collect this orphan; do not collect another session's unsaved audio here.
+        if (current !== target) return null;
         edit(p => {
             const withAsset = model.addAsset(p, asset);
-            const placed = model.placeAsset(withAsset, { assetId: asset.id, trackId: current.selectedTrack, playhead: current.playhead, ...place });
+            const placed = model.placeAsset(withAsset, { assetId: asset.id, trackId, playhead, ...place });
             current.selectedRegion = placed.regionId;
             current.selectedTrack = placed.project.regions.find(r => r.id === placed.regionId).trackId;
             return placed.project;
@@ -224,7 +247,9 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     async function addClip(clip, mode = 'append', { ask = true } = {}) {
         if (ask && !await targetProject(clip.name)) return;
         if (!current) return;
+        const target = current;
         const buffer = await engine.load(clip);
+        if (current !== target) return;
         const region = resolveRegion(clip.playback, buffer);
         let assetBounds = { inSeconds: 0, outSeconds: buffer.duration }, bounds = { inSeconds: region.start, outSeconds: region.end }, note = '';
         if (buffer.duration > model.STUDIO_LIMITS.assetSeconds) {
@@ -236,7 +261,7 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
         const analysis = engine.analysisFor(clip) || engine.analyze(clip, buffer);
         const levelDb = getState().settings.autoLevel === false ? 0 : levelGainDb(analysis?.loudness, analysis?.peak);
         const gainDb = Math.round(clamp(20 * Math.log10(Math.max(0.001, (clip.volume ?? 100) / 100)) + levelDb, -60, 12) * 10) / 10;
-        await addAsset(canonical, { name: clip.name, origin: { kind: 'clip', id: clip.id, label: clip.name } }, { mode, bounds: { ...bounds, fadeInMs: region.fadeIn * 1000, fadeOutMs: region.fadeOut * 1000 }, label: clip.name, gainDb });
+        if (!await addAsset(canonical, { name: clip.name, origin: { kind: 'clip', id: clip.id, label: clip.name } }, { mode, bounds: { ...bounds, fadeInMs: region.fadeIn * 1000, fadeOutMs: region.fadeOut * 1000 }, label: clip.name, gainDb }, target)) return;
         toast(`Added “${clip.name}” to “${current.project.name}”.${note}`);
     }
 
@@ -245,7 +270,7 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
         if (ask && !await targetProject(capture.name)) return;
         if (!current) return;
         const canonical = canonicalAsset(buffer);
-        await addAsset(canonical, { name: capture.name, origin: { kind: 'capture', id: capture.id, label: capture.name } }, { mode, bounds: { inSeconds: start, outSeconds: end }, label: capture.name });
+        if (!await addAsset(canonical, { name: capture.name, origin: { kind: 'capture', id: capture.id, label: capture.name } }, { mode, bounds: { inSeconds: start, outSeconds: end }, label: capture.name })) return;
         toast(`Added the selection from “${capture.name}” to “${current.project.name}”.`);
     }
 
@@ -256,11 +281,13 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     }
 
     async function grabRecent() {
+        const target = current;
         if (!engine.replay) {
             throw Object.assign(new Error('The replay buffer is off, so there is no recent audio to grab. Past audio cannot be recovered; turn the buffer on to keep audio from now on.'), { action: { label: 'Turn on replay buffer', run: () => armReplay(true) } });
         }
         const requested = engine.replay.seconds;
         const { samples, sampleRate } = await engine.grabReplay(requested);
+        if (current !== target) return;
         if (samples.length < sampleRate * 0.05) throw new Error('The replay buffer has no audio yet. Give it a moment and try again.');
         const seconds = samples.length / sampleRate;
         const name = `Recent audio ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}`;
@@ -269,12 +296,14 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     }
 
     async function importFile() {
+        const target = current;
         const file = await window.deck.importStudioFile();
-        if (!file) return;
+        if (!file || current !== target) return;
         await engine.init();
         let buffer;
         try { buffer = await engine.context.decodeAudioData(new Uint8Array(file.bytes).buffer); }
         catch { throw new Error(`“${file.name}” could not be decoded. Try MP3 or WAV.`); }
+        if (current !== target) return;
         await addGenerated(canonicalAsset(buffer), { name: file.name, origin: { kind: 'file', label: file.name } }, 'append');
     }
 
@@ -315,26 +344,33 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
         if (!selectedSource) return;
         if (!current) throw new Error('Create or open a project first.');
         const state = getState();
+        const target = current;
         if (selectedSource.kind === 'clip') {
             const clip = state.clips.find(c => c.id === selectedSource.id) || (() => { throw new Error('That sound is no longer on the board.'); })();
             await addClip(clip, mode, { ask: false });
         } else {
             const capture = state.captures.find(c => c.id === selectedSource.id) || (() => { throw new Error('That capture is no longer available.'); })();
             const buffer = await decodeBytes(await window.deck.readCapture(capture.id), capture.name);
+            if (current !== target) return;
             await addCapture(capture, buffer, 0, buffer.duration, mode, { ask: false });
         }
     }
 
     async function previewSource() {
         if (previewSession?.owner === 'source' && engine.auditionSession === previewSession) { stopPreview(); return; }
+        stopPreview();
+        const token = previewToken, selected = selectedSource;
+        if (!selected) return;
         const state = getState();
         let buffer, playback = null, gain = 1;
-        if (selectedSource.kind === 'clip') {
-            const clip = state.clips.find(c => c.id === selectedSource.id);
+        if (selected.kind === 'clip') {
+            const clip = state.clips.find(c => c.id === selected.id);
             buffer = await engine.load(clip); playback = clip.playback; gain = engine.clipGain(clip);
-        } else buffer = await decodeBytes(await window.deck.readCapture(selectedSource.id), selectedSource.name);
-        stopPreview();
-        previewSession = await engine.auditionBuffer(buffer, { deviceId: previewDevice(), playback, gain });
+        } else buffer = await decodeBytes(await window.deck.readCapture(selected.id), selected.name);
+        if (token !== previewToken) return;
+        const session = await engine.auditionBuffer(buffer, { deviceId: previewDevice(), playback, gain });
+        if (token !== previewToken) { if (engine.auditionSession === session) engine.stopAudition(); return; }
+        previewSession = session;
         previewSession.owner = 'source';
         $('srcPreview').textContent = 'Stop preview';
     }
@@ -348,6 +384,8 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     /** Decodes project audio on demand (never on launch), keeping about 256 MB of decoded audio. */
     async function loadBuffers(project) {
         const needed = new Set(project.regions.map(r => r.assetId)), map = new Map();
+        const bytes = project.assets.filter(a => needed.has(a.id)).reduce((total, a) => total + Math.ceil(a.duration * model.SAMPLE_RATE) * a.channels * 4, 0);
+        if (bytes > CACHE_BYTES) throw new Error('This project needs more than 256 MB of decoded audio. Use shorter source selections or split it into smaller projects. Your saved project is unchanged.');
         for (const assetId of needed) {
             const key = `${project.id}:${assetId}`;
             let buffer = decoded.get(key);
@@ -378,6 +416,8 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     async function togglePlay() {
         if (!current) return;
         if (previewSession?.owner === 'studio' && engine.auditionSession === previewSession) { pause(); return; }
+        stopPreview();
+        const token = previewToken, target = current;
         const project = model.checkProject(current.project);
         const range = playRange();
         if (range.endSeconds <= range.startSeconds) throw new Error('Add audio to the timeline to preview it.');
@@ -385,8 +425,9 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
         if (from < range.startSeconds || from >= range.endSeconds - 0.005) from = range.startSeconds;
         const deviceId = previewDevice();
         const buffers = await loadBuffers(project);
-        stopPreview();
+        if (token !== previewToken || current !== target) return;
         const session = await engine.startAudition(deviceId);
+        if (token !== previewToken || current !== target) { if (engine.auditionSession === session) engine.stopAudition(); return; }
         session.owner = 'studio';
         const when = engine.context.currentTime + 0.03;
         for (const source of scheduleProject(engine.context, session.input, project, buffers, { from, to: range.endSeconds, when })) session.add(source);
@@ -411,6 +452,7 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     }
 
     function stopPreview() {
+        previewToken++;
         clearTimeout(playFrame);
         if (previewSession && engine.auditionSession === previewSession) engine.stopAudition();
         previewSession = null; previewInfo = null;
@@ -419,6 +461,7 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     }
 
     engine.addEventListener('audition', event => { if (!event.detail && previewSession && engine.auditionSession !== previewSession) { clearTimeout(playFrame); previewSession = null; previewInfo = null; $('studioPlay').textContent = '▶ Preview'; $('srcPreview').textContent = 'Preview'; } });
+    engine.addEventListener('stopall', stopPreview);
 
     function returnToStart() { stopPreview(); if (current) { current.playhead = playRange().startSeconds; renderPlayhead(); } }
 
@@ -442,12 +485,14 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     }
 
     async function saveAsSound() {
+        const target = current;
         const answer = await askText({ eyebrow: 'Sound Studio', title: 'Save as new sound', label: 'Sound name', value: current.project.name, colors: true, confirm: 'Render and add to soundboard', help: 'Renders the saved project to a new pad. Later project edits do not change it.' });
-        if (!answer) return;
-        if (current.dirty || current.unsaved) await save();
-        const snapshot = structuredClone(current.project), projectId = current.id;
+        if (!answer || current !== target) return;
+        const saved = current.dirty || current.unsaved ? await save() : current.project;
+        if (current !== target) return;
+        const snapshot = structuredClone(saved), projectId = target.id;
         const result = await renderCurrent(snapshot);
-        if (!result) { toast('Render cancelled. Nothing was saved.'); return; }
+        if (!result || current !== target) { toast('Render cancelled. Nothing was saved.'); return; }
         const bytes = renderedBytes(result.buffer);
         if (bytes > model.STUDIO_LIMITS.padBytes) {
             throw new Error(`This render is ${(bytes / 1048576).toFixed(1)} MB (${formatTime(result.buffer.duration)} of stereo audio). Pads are limited to 30 MB, about 2:43 of stereo. Set an export range to shorten it, or use Export WAV. Your project is unchanged.`);
@@ -458,9 +503,10 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     }
 
     async function exportWav() {
-        const result = await renderCurrent(current.project);
-        if (!result) { toast('Render cancelled. No file was written.'); return; }
-        const saved = await window.deck.exportWav(`${current.project.name}.wav`, bufferToWav(result.buffer));
+        const target = current, snapshot = structuredClone(target.project);
+        const result = await renderCurrent(snapshot);
+        if (!result || current !== target) { toast('Render cancelled. No file was written.'); return; }
+        const saved = await window.deck.exportWav(`${snapshot.name}.wav`, bufferToWav(result.buffer));
         if (saved) toast(`Exported ${saved} (${formatTime(result.buffer.duration)}, stereo).${result.limited ? ' Peaks were reduced to prevent clipping.' : ''}`);
     }
 
@@ -477,6 +523,7 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
 
     function renderTimeline() {
         const rows = $('studioTracks');
+        renderedWidth = $('studioTimeline').clientWidth;
         rows.replaceChildren();
         if (!current) { $('studioRuler').replaceChildren(); return; }
         const p = current.project, width = contentSeconds() * pps, audible = model.audibleTrackIds(p);
@@ -676,7 +723,7 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     const wire = (id, action) => { $(id).onclick = () => run(action); };
     wire('studioNew', () => newProject());
     wire('studioEmptyNew', () => newProject());
-    wire('studioSave', async () => { await save(); toast(`Saved “${current.project.name}”.`); });
+    wire('studioSave', async () => { const saved = await save(); if (saved) toast(`Saved “${saved.name}”.${current?.dirty ? ' Newer edits are still unsaved.' : ''}`); });
     wire('studioSaveCopy', saveCopy);
     wire('studioRename', rename);
     wire('studioDelete', remove);
@@ -702,7 +749,9 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
     $('studioProject').onchange = () => { const id = $('studioProject').value; if (id) run(() => openProject(id)); };
     $('studioSearch').oninput = renderSources;
     for (const tab of document.querySelectorAll('[data-source-tab]')) tab.onclick = () => { sourceTab = tab.dataset.sourceTab; renderSources(); };
-    new ResizeObserver(() => { if (current && !drag) renderTimeline(); }).observe($('studioTimeline'));
+    // Layout depends only on the timeline width. Showing the view already redraws it (refresh), so skip the
+    // observer's follow-up notification for the same width: a needless redraw replaces every timeline node.
+    new ResizeObserver(() => { if (current && !drag && isVisible() && $('studioTimeline').clientWidth !== renderedWidth) renderTimeline(); }).observe($('studioTimeline'));
 
     async function checkRecovery() {
         const list = await window.deck.recoverableProjects();
@@ -717,7 +766,7 @@ export function createStudio({ engine, toast, reportError, previewDevice, getSta
 
     return {
         init: async () => { renderProjectList(); renderAll(); await checkRecovery(); },
-        refresh: () => { renderProjectList(); renderSources(); },
+        refresh: () => { renderProjectList(); renderSources(); if (current && isVisible() && !drag) renderTimeline(); },
         addClip: clip => run(() => addClip(clip)),
         addCapture: (capture, buffer, start, end) => run(() => addCapture(capture, buffer, start, end)),
         addGenerated: (canonical, meta, mode) => addGenerated(canonical, meta, mode),

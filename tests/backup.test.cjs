@@ -150,3 +150,40 @@ test('backups cannot be written inside the live library, and a failed backup lea
   await assert.rejects(createBackup({ library: lib, destination: out }));
   assert.deepEqual(await fs.readdir(out), [], 'the incomplete backup folder was removed');
 });
+
+test('restore rejects excess records, newer library schemas, bad references, and duplicate IDs instead of silently dropping them', async () => {
+  const { root, out } = await dirs();
+  const { lib } = await richLibrary(root);
+  const { folder } = await createBackup({ library: lib, destination: out });
+  const file = path.join(folder, 'manifest.json'), original = JSON.parse(await fs.readFile(file, 'utf8'));
+  const target = new Library(path.join(root, 'target')); await target.init();
+  for (const mutate of [
+    m => { m.library.clips = Array.from({ length: 121 }, (_, i) => ({ ...m.library.clips[0], id: crypto.randomUUID(), name: String(i) })); },
+    m => { m.library.schemaVersion = 999; },
+    m => { m.library.clips.push({ ...m.library.clips[0] }); },
+    m => { m.library.collections[0].clipIds.push(crypto.randomUUID()); },
+    m => { m.library.clips[0].exclusiveGroupId = crypto.randomUUID(); },
+    m => { m.version = 0; }
+  ]) {
+    const manifest = structuredClone(original); mutate(manifest);
+    await fs.writeFile(file, JSON.stringify(manifest));
+    await assert.rejects(restoreBackup({ library: target, source: folder }));
+    assert.equal(target.state.clips.length, 0);
+  }
+});
+
+test('backups include only referenced project assets and fail visibly if a saved project is unreadable', async () => {
+  const { root, out } = await dirs();
+  const { lib, store, project } = await richLibrary(root);
+  const unused = await store.addAsset(project.id, wav(0.1));
+  const projectFile = path.join(lib.root, 'projects', project.id, 'project.json');
+  // An older save may still list an asset removed from the timeline.
+  const old = JSON.parse(await fs.readFile(projectFile, 'utf8')); old.assets.push(unused);
+  await fs.writeFile(projectFile, JSON.stringify(old));
+  const summary = await createBackup({ library: lib, destination: out });
+  const backup = await inspectBackup(summary.folder);
+  assert.equal(backup.projects[0].project.assets.length, 1);
+  await fs.writeFile(projectFile, '{broken');
+  await assert.rejects(createBackup({ library: lib, destination: out }), /saved project.*could not be read/);
+  assert.equal((await fs.readdir(out)).length, 1, 'no incomplete backup is left');
+});

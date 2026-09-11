@@ -52,9 +52,18 @@ export class Recorder extends EventTarget {
             session.offEnded = lease.onEnded(() => this.stop('disconnected'));
             this.session = session;
             if (monitorDevice) {
-                try { const monitor = await engine.startAudition(monitorDevice); monitor.owner = 'recorder'; input.connect(monitor.input); session.monitor = monitor; }
+                try {
+                    const monitor = await engine.startAudition(monitorDevice);
+                    if (token !== this.token || this.session !== session) {
+                        if (engine.auditionSession === monitor) engine.stopAudition();
+                        return;
+                    }
+                    monitor.owner = 'recorder'; input.connect(monitor.input); session.monitor = monitor;
+                }
                 catch (error) { this.emit('warning', `Monitoring is off: ${error.message}`); }
             }
+            if (token !== this.token || this.session !== session) return;
+            session.startedAt = ctx.currentTime;
             node.port.postMessage({ type: 'start' });
             this.state = 'recording';
             this.emit('state', this.state);
@@ -83,6 +92,12 @@ export class Recorder extends EventTarget {
         for (const node of [session.tap, session.input, session.node, session.sink, session.meter]) node.disconnect();
         session.node.port.onmessage = null;
         session.lease.release();
+        if (reason === 'cancelled') {
+            session.chunks.length = 0;
+            this.take = null; this.state = 'idle'; this.emit('state', this.state);
+            session.resolveFinished(null);
+            return;
+        }
         const samples = new Float32Array(session.frames);
         let offset = 0; for (const chunk of session.chunks) { samples.set(chunk, offset); offset += chunk.length; }
         const sampleRate = this.engine.context.sampleRate;
@@ -105,13 +120,17 @@ export class Recorder extends EventTarget {
     cancel() {
         this.token++;
         const session = this.session;
-        if (session) { session.stopReason = 'cancelled'; this.discardOnFinish = true; session.node.port.postMessage({ type: 'stop' }); session.finished.then(() => { this.take = null; }); }
+        if (session) {
+            session.stopReason = 'cancelled';
+            if (this.state === 'acquiring') this.finalize(session, 'cancelled');
+            else session.node.port.postMessage({ type: 'stop' });
+        }
         if (this.state === 'acquiring') { this.state = 'idle'; this.emit('state', this.state); }
     }
 
     discard() { this.take = null; this.emit('state', this.state); }
 
-    elapsed() { return this.session ? (performance.now() - this.session.startedAt) / 1000 : this.take?.seconds ?? 0; }
+    elapsed() { return this.state === 'recording' && this.session ? Math.max(0, this.engine.context.currentTime - this.session.startedAt) : this.take?.seconds ?? 0; }
 
     level() {
         const meter = this.session?.meter;

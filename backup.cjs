@@ -2,7 +2,7 @@ const fs = require('node:fs/promises');
 const { createReadStream } = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { Library, LIMITS, isId, SLOT_KEYS } = require('./library.cjs');
+const { Library, LIMITS, isId, SLOT_KEYS, replaceFile } = require('./library.cjs');
 const { normalizeProject, wavInfo, writeAtomic } = require('./projects.cjs');
 
 /**
@@ -57,9 +57,14 @@ async function createBackup({ library, destination, appVersion = '' }) {
       for (const entry of state.projects.filter(p => p.saved)) {
         const file = path.join(library.root, 'projects', entry.id, 'project.json');
         let project;
-        try { project = JSON.parse(await fs.readFile(file, 'utf8')); } catch { continue; }
+        try { project = JSON.parse(await fs.readFile(file, 'utf8')); }
+        catch { fail(`The saved project “${entry.name}” could not be read. Restore it before making a backup.`); }
         const used = new Set(project.regions.map(r => r.assetId));
-        await add(`projects/${entry.id}/project.json`);
+        project.assets = project.assets.filter(asset => used.has(asset.id));
+        const relative = `projects/${entry.id}/project.json`, output = path.join(folder, ...relative.split('/'));
+        await fs.mkdir(path.dirname(output), { recursive: true });
+        await writeAtomic(output, JSON.stringify(project, null, 2));
+        files.push({ path: relative, ...await hashFile(output) });
         for (const asset of project.assets) if (used.has(asset.id)) await add(`projects/${entry.id}/assets/${asset.file}`);
         projects.push({ id: entry.id, name: entry.name, createdAt: entry.createdAt, updatedAt: entry.updatedAt, revision: entry.revision });
       }
@@ -91,8 +96,20 @@ async function inspectBackup(source) {
   let manifest;
   try { manifest = JSON.parse(await fs.readFile(manifestFile, 'utf8')); } catch { fail('The backup manifest is damaged.'); }
   if (manifest?.format !== FORMAT) fail('This folder is not a PulseDeck backup.');
-  if (!Number.isInteger(manifest.version) || manifest.version > VERSION) fail('This backup was made by a newer version of PulseDeck. Update PulseDeck to restore it.');
+  if (manifest.version !== VERSION) fail('This backup uses an unsupported or newer version of PulseDeck. Update PulseDeck to restore it.');
   if (!Array.isArray(manifest.files) || manifest.files.length > 20000 || !manifest.library || typeof manifest.library !== 'object') fail('The backup manifest is incomplete.');
+  if (manifest.library.schemaVersion !== 2) fail('The backup uses an unsupported library schema.');
+  // Normal library loading salvages and truncates damaged records. Restore must instead be all-or-nothing.
+  for (const key of ['clips', 'captures', 'collections', 'groups', 'projects']) {
+    const list = manifest.library[key];
+    if (!Array.isArray(list) || list.length > LIMITS[key]) fail(`The backup ${key} list is invalid or exceeds the limit of ${LIMITS[key]}. Nothing was restored.`);
+    if (list.some(item => !isId(item?.id)) || new Set(list.map(item => item.id)).size !== list.length) fail(`The backup ${key} list has invalid or duplicate IDs.`);
+  }
+  const clipIds = new Set(manifest.library.clips.map(c => c.id)), groupIds = new Set(manifest.library.groups.map(g => g.id));
+  for (const collection of manifest.library.collections) {
+    if (!Array.isArray(collection.clipIds) || collection.clipIds.some(id => !clipIds.has(id)) || new Set(collection.clipIds).size !== collection.clipIds.length) fail('A backup collection contains missing or duplicate sounds.');
+  }
+  for (const clip of manifest.library.clips) if (clip.exclusiveGroupId && !groupIds.has(clip.exclusiveGroupId)) fail('A backup sound refers to a missing exclusive group.');
   const files = new Map();
   for (const entry of manifest.files) {
     const relative = entry?.path;
@@ -100,7 +117,14 @@ async function inspectBackup(source) {
     if (!FILE_PATTERNS.some(pattern => pattern.test(relative))) fail(`The backup lists an unexpected file (${relative.slice(0, 80)}).`);
     if (files.has(relative)) fail('The backup lists a file twice.');
     if (!Number.isInteger(entry.size) || entry.size < 1 || entry.size > FILE_BYTES || typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256)) fail('The backup lists a file with an invalid size or checksum.');
+    if (relative.startsWith('clips/') && entry.size > LIMITS.clipBytes) fail('A backup sound exceeds the 30 MB pad limit.');
     const full = path.join(root, ...relative.split('/'));
+    let component = root;
+    for (const part of relative.split('/').slice(0, -1)) {
+      component = path.join(component, part);
+      const dir = await fs.lstat(component).catch(() => fail('A backup folder is missing.'));
+      if (!dir.isDirectory() || dir.isSymbolicLink()) fail('Backup folders cannot be symbolic links or junctions.');
+    }
     const stat = await fs.lstat(full).catch(() => fail(`A file is missing from the backup (${relative}).`));
     if (!stat.isFile() || stat.isSymbolicLink()) fail(`A backup file is not a regular file (${relative}).`);
     const real = await fs.realpath(full);
@@ -114,12 +138,15 @@ async function inspectBackup(source) {
   const scratch = new Library(root);
   scratch.load({ ...manifest.library, clips: Array.isArray(manifest.library.clips) ? manifest.library.clips : [] });
   const library = scratch.state;
+  for (const key of ['clips', 'captures', 'collections', 'groups', 'projects']) if (library[key].length !== manifest.library[key].length) fail(`The backup contains invalid ${key} metadata. Nothing was restored.`);
+  if (scratch.warnings.length) fail(`The backup contains invalid sound metadata: ${scratch.warnings.join(' ')}`);
   for (const clip of library.clips) if (!files.has(`clips/${clip.file}`)) fail(`The backup is missing audio for “${clip.name}”.`);
   for (const capture of library.captures) if (!files.has(`captures/${capture.file}`)) fail(`The backup is missing the capture “${capture.name}”.`);
   const projects = [];
   for (const entry of Array.isArray(manifest.library.projects) ? manifest.library.projects : []) {
     if (!isId(entry?.id) || !files.has(`projects/${entry.id}/project.json`)) fail('The backup lists a project that is missing.');
     const raw = JSON.parse(await fs.readFile(files.get(`projects/${entry.id}/project.json`), 'utf8'));
+    if (raw.id !== entry.id) fail('A backup project ID does not match its manifest.');
     const info = new Map();
     for (const asset of Array.isArray(raw.assets) ? raw.assets : []) {
       const key = `projects/${entry.id}/assets/${asset?.file}`;
@@ -150,6 +177,8 @@ async function restoreBackup({ library, source }) {
       const stage = async (relative, finalRelative) => {
         const temp = path.join(staging, crypto.randomUUID());
         await fs.copyFile(backup.files.get(relative), temp, fs.constants.COPYFILE_EXCL);
+        const expected = backup.manifest.files.find(f => f.path === relative), copied = await hashFile(temp);
+        if (copied.size !== expected.size || copied.sha256 !== expected.sha256) fail('The backup changed while it was being restored. Nothing was restored.');
         staged.push({ temp, final: path.join(library.root, ...finalRelative.split('/')) });
       };
       for (const group of incoming.groups) ids.groups.set(group.id, crypto.randomUUID());
@@ -162,7 +191,7 @@ async function restoreBackup({ library, source }) {
       // 2. Move staged files into place; each one is recorded so a failure removes only what this restore added.
       for (const { temp, final } of staged) {
         await fs.mkdir(path.dirname(final), { recursive: true });
-        await fs.rename(temp, final); created.push(final);
+        await replaceFile(temp, final); created.push(final);
       }
       for (const { entry, project } of backup.projects) {
         const id = ids.projects.get(entry.id), folder = path.join(library.root, 'projects', id);

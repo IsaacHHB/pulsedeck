@@ -36,6 +36,11 @@ test('the main-process WAV check rejects non-canonical, truncated, and empty aud
     assert.throws(() => assertCanonicalWav(Buffer.from(encodeWavChannels([new Float32Array(480)], 44100))), /48000/);
     assert.throws(() => assertCanonicalWav(Buffer.from(encodeWavChannels([new Float32Array(0)], 48000))), /no samples/);
     const truncated = Buffer.from(good); truncated.writeUInt32LE(99999, 40);
-    assert.equal(parseWav(truncated).frames, 480, 'the data length is bounded by the actual bytes');
+    assert.throws(() => assertCanonicalWav(truncated), /truncated/, 'declared data must exist in full');
+    assert.throws(() => assertCanonicalWav(good.subarray(0, good.length - 2)), /truncated/);
+    const badAlign = Buffer.from(good); badAlign.writeUInt16LE(4, 32);
+    assert.throws(() => assertCanonicalWav(badAlign), /alignment/);
+    const badRate = Buffer.from(good); badRate.writeUInt32LE(7, 28);
+    assert.throws(() => assertCanonicalWav(badRate), /byte rate/);
     assert.throws(() => parseWav(Buffer.from('RIFF....WAVEjunk')), /not a WAV/);
 });

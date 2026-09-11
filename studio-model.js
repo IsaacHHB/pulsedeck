@@ -38,12 +38,10 @@ export function audibleTrackIds(project) {
 }
 /** Timeline length: the end of the last region (all tracks). */
 export const timelineDuration = project => project.regions.reduce((max, r) => Math.max(max, regionEnd(r)), 0);
-/** Rendered length: the end of the last audible region, or the export range when one is set. */
+/** Keep timeline duration stable when muting/soloing tracks; an explicit export range overrides it. */
 export function renderRange(project) {
     if (project.exportRange) return { ...project.exportRange };
-    const audible = audibleTrackIds(project);
-    const end = project.regions.filter(r => audible.has(r.trackId)).reduce((max, r) => Math.max(max, regionEnd(r)), 0);
-    return { startSeconds: 0, endSeconds: end };
+    return { startSeconds: 0, endSeconds: timelineDuration(project) };
 }
 
 function fail(message) { throw new Error(message); }
@@ -140,7 +138,7 @@ export function placeAsset(project, { assetId, mode = 'append', trackId, playhea
         if (r.trackId !== track.id || regionEnd(r) <= at + 1e-9) { regions.push(r); continue; }
         if (r.atSeconds >= at - 1e-9) { regions.push({ ...r, atSeconds: round(r.atSeconds + length) }); continue; }
         const cut = at - r.atSeconds;
-        regions.push({ ...r, outSeconds: round(r.inSeconds + cut), fadeOutMs: Math.min(r.fadeOutMs, cut * 1000) });
+        regions.push({ ...r, outSeconds: round(r.inSeconds + cut), fadeInMs: Math.min(r.fadeInMs, cut * 1000), fadeOutMs: 0 });
         const rest = { ...r, id: uuid(), atSeconds: round(at + length), inSeconds: round(r.inSeconds + cut), fadeInMs: 0 };
         rest.fadeOutMs = Math.min(rest.fadeOutMs, regionLength(rest) * 1000);
         regions.push(rest);

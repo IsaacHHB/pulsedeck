@@ -894,8 +894,13 @@ async function ttsFlow(ctx) {
   ctx.ttsPad = pad.id;
   await page.click('#studioNav');
   const track1 = await page.evaluate(() => window.__test.studio.current.project.tracks[0].id);
-  const lane = await page.locator(`.track-lane[data-track="${track1}"]`).boundingBox();
-  const visible = await page.locator('#studioTimeline').boundingBox();
+  // Scroll and read both boxes in single DOM turns: the timeline can replace its nodes between protocol calls.
+  await page.waitForFunction(id => document.querySelector(`.track-lane[data-track="${id}"]`)?.getBoundingClientRect().height > 0, track1, { polling: 25 });
+  await page.evaluate(id => document.querySelector(`.track-lane[data-track="${id}"]`).scrollIntoView({ block: 'nearest', inline: 'nearest' }), track1);
+  const { lane, visible } = await page.evaluate(id => {
+    const box = node => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+    return { lane: box(document.querySelector(`.track-lane[data-track="${id}"]`)), visible: box(document.querySelector('#studioTimeline')) };
+  }, track1);
   // Select track 1 by clicking its lane above the regions, inside the visible part of the timeline.
   await page.mouse.click(Math.min(lane.x + lane.width - 20, visible.x + visible.width - 30), lane.y + 3);
   const first = (await studioRegions(page)).find(r => r.trackId === track1 && r.atSeconds === 0);
@@ -1269,9 +1274,10 @@ async function main() {
     console.log(JSON.stringify(report, null, 2));
   } finally { await ctx.app.close(); }
 }
-main().catch(error => {
+if (require.main === module) main().catch(error => {
   console.error(error);
   // CI logs need a token to read; workflow annotations are public, so surface the failure there too.
   if (process.env.GITHUB_ACTIONS) console.log(`::error title=features.cjs failed after: ${(checks.at(-1) || 'start').slice(0, 120).replace(/[:,]/g, ' ')}::${String(error.stack || error).slice(0, 3500).replace(/%/g, '%25').replace(/\r?\n/g, '%0A')}`);
   process.exitCode = 1;
 });
+module.exports = { launch, stubHardware, toneWav, press, askText, choose, selectSource, until, pause };

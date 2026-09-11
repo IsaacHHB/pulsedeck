@@ -61,6 +61,7 @@ function showView(name) {
     for (const [id, key] of [['boardNav', 'board'], ['voiceNav', 'voice'], ['replayNav', 'replay'], ['studioNav', 'studio'], ['ttsNav', 'tts']]) $(id).classList.toggle('active', name === key);
     $('crumbView').textContent = { board: 'Soundboard', voice: 'Voice changer', replay: 'Replay buffer', studio: 'Sound Studio', tts: 'Text to speech' }[name];
     if (name === 'replay') drawWaveform();
+    if (name === 'studio') studio.refresh();
     if ($('guideDialog').open) $('guideDialog').close();
 }
 

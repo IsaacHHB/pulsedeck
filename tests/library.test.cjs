@@ -73,3 +73,19 @@ test('corrupt state is preserved for recovery, with a visible warning', async ()
   const reload = new Library(lib.root); const result = await reload.init(); assert.match(result.warning, /could not be read/);
   assert.ok((await fs.readdir(lib.root)).some(name => name.startsWith('library-recovery-')));
 });
+test('a save survives a transient Windows file lock on the final rename, but other errors still fail', async () => {
+  const { lib } = await fixture();
+  const rename = fs.rename; let failures = 0;
+  fs.rename = async (from, to) => {
+    if (failures < 2 && String(to).endsWith('library.json')) { failures++; throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' }); }
+    return rename(from, to);
+  };
+  try {
+    lib.state.settings.autoLevel = false;
+    await lib.commit();
+    assert.equal(failures, 2);
+    assert.equal(JSON.parse(await fs.readFile(path.join(lib.root, 'library.json'), 'utf8')).settings.autoLevel, false, 'the write completed after the lock cleared');
+    fs.rename = async () => { throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' }); };
+    await assert.rejects(lib.commit(), /ENOSPC/, 'non-transient errors are not retried');
+  } finally { fs.rename = rename; }
+});
