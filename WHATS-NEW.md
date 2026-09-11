@@ -1,3 +1,27 @@
+# PulseDeck 0.6.5
+
+## Make new sounds
+
+- **Playback regions.** Choose the part of a sound a pad plays from its menu → *Playback region*. Drag the handles on a zoomable waveform or type start and end times, add fades, and preview in your headphones. The original audio is kept, so you can widen the region again or reset to the full clip at any time. Every trigger — click, shortcut, overlay, and queue — plays the region.
+- **Replay captures keep their full audio.** *Add selection as pad (keep full audio)* copies the whole capture and plays only your selection, so you can adjust it later, even after the capture is deleted. *Add trimmed copy* still makes a shorter file.
+- **Sound Studio.** Combine board sounds, replay captures, grabs of the live replay buffer, microphone takes, speech, and audio files on up to 8 tracks. Insert, append, or layer at the playhead; drag, trim, split, duplicate, and remove regions; set gain, pan, and fades; mute and solo tracks; snap to a 10 ms grid or region edges; undo and redo. Preview plays only in your headphones. *Save as new sound* renders a stereo pad (peaks above −1 dB are limited), and *Export WAV* saves a file. Projects keep their own copies of their audio, save atomically, and keep a recovery draft if PulseDeck closes unexpectedly.
+- **Record a sound.** Record your microphone dry or with the current voice effect, straight onto the board or into a Studio project, for up to 3 minutes. Recording works with the broadcast disconnected, keeps going while your live mic is muted, and never interrupts a call that uses the same microphone.
+- **Text to speech.** Type a phrase, pick an installed voice and speed, then *Preview* in headphones, *Speak now* through your broadcast, *Save as sound*, or *Insert in Studio*. Speech uses your computer's installed voices; nothing is uploaded.
+
+## Play and organize
+
+- Favorites, tags (search now matches tags), and collections. Select several pads to add them to a collection at once. Reordering inside a collection never moves the Ctrl+Alt digit shortcuts.
+- Each pad can *Toggle*, *Restart*, or *Overlap* (up to 8 copies) when triggered again. Exclusive groups stop the other sounds in the same group.
+- A playback queue plays each sound once, in order, with pause, resume, next, and stop.
+- *Lower sounds while I speak* ducks the soundboard while your microphone hears you, with adjustable threshold, amount, attack, hold, and release.
+
+## Export and backup
+
+- Export a pad's played region as WAV, or its untouched original file.
+- *Back up or restore…* in the sidebar saves your library to a portable folder with checksums and merges a backup into a library, without replacing anything or starting devices.
+
+Your existing library is upgraded automatically, and a copy of the previous `library.json` is kept next to it.
+
 # PulseDeck 0.6.4
 
 - Mac replay now uses system-audio permission without requiring permission to record the screen. The required temporary video track comes from PulseDeck's own window and is immediately discarded.
