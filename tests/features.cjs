@@ -710,8 +710,11 @@ async function recorderFlow(ctx) {
   await openRecorder(page);
   await recordFor(page, 1000, { mode: 'processed' });
   const processed = await takeInfo(page);
-  // Compare with the dry take (same clock drift): the chipmunk preset raises the pitch by 7 semitones.
-  assert.ok(processed.processed && Math.abs(processed.hz / dry.hz - 2 ** (7 / 12)) < 0.045, JSON.stringify({ processed, dry }));
+  // The chipmunk preset raises the pitch by 7 semitones. Each take has its own clock drift on a starved CI runner
+  // (one macOS run measured the dry take 3.5% low and the processed take exact), so check the processed take
+  // against the expected 1318 Hz with the same 5% tolerance as the dry take, plus a clear rise over the dry take.
+  const chipmunkHz = 880 * 2 ** (7 / 12);
+  assert.ok(processed.processed && Math.abs(processed.hz - chipmunkHz) < chipmunkHz * 0.05 && processed.hz > dry.hz * 1.3, JSON.stringify({ processed, dry }));
   const regionsBefore = (await studioRegions(page)).length;
   await page.fill('#recName', 'Chipmunk take'); await page.click('#recAppend');
   await page.waitForFunction(() => !document.querySelector('#recordDialog').open);
