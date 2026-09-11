@@ -517,6 +517,9 @@ dialog input[type=number]:focus { border-color: var(--accent); outline: none; }
 .dialog-message { color: var(--text-soft); font-size: 13px; margin-bottom: 4px; }
 .choice-actions { justify-content: flex-end; gap: 8px; }
 @media (max-width: 1250px) { .studio-body { grid-template-columns: 1fr; } .source-list { max-height: 160px; } }
+/* Grid rows size to their content so panels never overlap in short or narrow windows; the view scrolls instead. */
+.studio-body { flex: 1 0 auto; }
+.studio-sources, .studio-work { min-height: auto; }
 
 /* ─── Recorder ────────────────────────────────────────────── */
 #recordDialog { width: 520px; }

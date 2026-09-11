@@ -42,8 +42,20 @@ async function until(page, fn, arg, timeout = 15000) {
   while (true) {
     if (await page.evaluate(fn, arg)) return;
     if (Date.now() - started > timeout) throw new Error('Timed out waiting for: ' + fn.toString().slice(0, 160));
-    await page.waitForTimeout(100);
+    await pause(page,100);
   }
+}
+
+/**
+ * Waits for `ms` of audio time. On busy CI machines the audio clock can run slower than the wall clock,
+ * so waits that let audio play (or let taps flush) follow the engine's clock. Before the engine exists it
+ * falls back to wall time.
+ */
+async function pause(page, ms) {
+  const target = await page.evaluate(s => { const ctx = window.__test?.engine?.context; return ctx && ctx.state === 'running' ? ctx.currentTime + s : null; }, ms / 1000).catch(() => null);
+  if (target === null) { await new Promise(resolve => setTimeout(resolve, ms)); return; }
+  // Poll on a timer: the default polls on animation frames, which barely run in the hidden test window.
+  await page.waitForFunction(t => (window.__test?.engine?.context?.currentTime ?? Infinity) >= t, target, { timeout: Math.max(30000, ms * 8), polling: 25 });
 }
 
 /** Replaces only the hardware boundary inside the page. */
@@ -182,7 +194,7 @@ async function regions(ctx) {
   await tapStart(page);
   await page.click('#regionPreview');
   await page.waitForFunction(() => window.__test.engine.auditionSession && document.querySelector('#regionPreview').textContent.includes('Stop'));
-  await page.waitForTimeout(700);
+  await pause(page,700);
   const previewTap = await tapStop(page);
   assert.equal(previewTap.audible, 0, 'preview audio never enters the soundboard bus');
   assert.ok(await page.evaluate(() => window.testMediaSinks.includes('test-phones')));
@@ -219,8 +231,8 @@ async function regions(ctx) {
   for (const [label, run] of Object.entries(trigger)) {
     await tapStart(page); await run();
     await page.waitForFunction(() => document.querySelector('.sound-pad.playing'));
-    await page.waitForFunction(() => !document.querySelector('.sound-pad.playing'), undefined, { timeout: 9000 });
-    await page.waitForTimeout(150);
+    await page.waitForFunction(() => !document.querySelector('.sound-pad.playing'), undefined, { timeout: 30000 });
+    await pause(page,150);
     expectRegion(await tapStop(page), label);
   }
   await ctx.overlay.click('#hideBtn');
@@ -233,8 +245,8 @@ async function regions(ctx) {
   await tapStart(page);
   await page.locator('.sound-pad').nth(await padIndex(page, 'Timecode')).locator('.pad-main').click();
   const wraps = await page.evaluate(async id => {
-    const values = []; const started = performance.now();
-    while (performance.now() - started < 1700) { const p = window.__test.engine.progress(id); if (p !== null) values.push(p); await new Promise(r => setTimeout(r, 20)); }
+    const values = [], ctx = window.__test.engine.context, started = ctx.currentTime;
+    while (ctx.currentTime - started < 1.7) { const p = window.__test.engine.progress(id); if (p !== null) values.push(p); await new Promise(r => setTimeout(r, 20)); }
     let wraps = 0; for (let i = 1; i < values.length; i++) if (values[i] < values[i - 1] - 0.5) wraps++;
     return wraps;
   }, saved.id);
@@ -259,8 +271,8 @@ async function regions(ctx) {
   assert.ok(loopTap.audible > 1.4);
   assert.equal(await page.evaluate(() => window.__test.engine.instances.size), 0);
   // The tap's ScriptProcessor delivers audio about two buffers late; let it flush before measuring silence.
-  await page.waitForTimeout(250);
-  await tapStart(page); await page.waitForTimeout(600);
+  await pause(page,250);
+  await tapStart(page); await pause(page,600);
   const afterStop = await tapStop(page);
   assert.equal(afterStop.audible, 0, 'Stop all cancels every scheduled node: ' + JSON.stringify(afterStop));
   pass('A looping region stays inside its interval for 3+ cycles, progress resets each cycle, fades repeat per cycle, and Stop all silences it');
@@ -287,7 +299,7 @@ async function regions(ctx) {
   await tapStart(page);
   await page.locator('.sound-pad').nth(await padIndex(page, 'Timecode')).locator('.pad-main').click();
   await toastSeen(page, 'outside this sound');
-  await page.waitForFunction(() => !document.querySelector('.sound-pad.playing'), undefined, { timeout: 6000 });
+  await page.waitForFunction(() => !document.querySelector('.sound-pad.playing'), undefined, { timeout: 30000 });
   const fallback = await tapStop(page);
   assert.ok(Math.abs(fallback.audible - 2) < 0.06, JSON.stringify(fallback));
   await fs.writeFile(file, timecodeWav());
@@ -302,7 +314,7 @@ async function captureToPad(ctx) {
   const { page, dataDir } = ctx;
   await page.click('#replayNav'); await page.check('#replayToggle');
   await page.waitForFunction(() => document.querySelector('#replayArm').classList.contains('armed'));
-  await page.waitForTimeout(2200);
+  await pause(page,2200);
   await page.click('#captureBtn');
   await page.waitForFunction(() => document.querySelectorAll('.capture').length >= 1 && !document.querySelector('#editor').hidden);
   const capture = (await library(page)).captures[0];
@@ -433,7 +445,16 @@ async function studioDsp(ctx) {
   ctx.dsp = report;
 }
 
+const mainWindow = (app, width, height) => app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows().find(w => w.getTitle() === 'PulseDeck').setSize(size[0], size[1]), [width, height]);
+
 async function studioFlow(ctx) {
+  const { page, app, base, dataDir } = ctx;
+  // Near the minimum window size, Studio switches to one column; every control must stay clickable.
+  await mainWindow(app, 1024, 740);
+  try { await studioSteps(ctx); } finally { await mainWindow(app, 1280, 860); }
+}
+
+async function studioSteps(ctx) {
   const { page, app, base, dataDir } = ctx;
   await page.click('#studioNav');
   await page.waitForFunction(() => !document.querySelector('#studioView').hidden && !document.querySelector('#studioEmpty').hidden);
@@ -451,7 +472,7 @@ async function studioFlow(ctx) {
   // A replay capture selection, sent from the capture editor.
   await page.click('#replayNav'); await page.check('#replayToggle');
   await page.waitForFunction(() => document.querySelector('#replayArm').classList.contains('armed'));
-  await page.waitForTimeout(2200); await page.click('#captureBtn');
+  await pause(page,2200); await page.click('#captureBtn');
   await page.waitForFunction(() => !document.querySelector('#editor').hidden);
   await page.fill('#trimStart', '0.2'); await page.fill('#trimEnd', '1');
   await page.click('#captureToStudio'); await choose(page, 'current');
@@ -508,9 +529,9 @@ async function studioFlow(ctx) {
   await tapStart(page, 'previewBus'); await tapStart(page, 'board');
   const playheadInfo = () => page.evaluate(async () => { const m = await import('./studio-model.js'); const s = window.__test.studio; return { playhead: s.playhead, end: m.timelineDuration(s.current.project), audition: window.__test.engine.auditionSession?.owner || null, label: document.querySelector('#studioPlay').textContent }; });
   const beforePlay = await playheadInfo();
-  await press(page, '#studioPlay'); await page.waitForTimeout(300);
+  await press(page, '#studioPlay'); await pause(page,300);
   const playing = await playheadInfo();
-  await page.waitForTimeout(900); await press(page, '#studioPlay'); await page.waitForTimeout(100);
+  await pause(page,900); await press(page, '#studioPlay'); await pause(page,100);
   const paused = await playheadInfo();
   const heard = await tapStop(page, 'previewBus'), leaked = await tapStop(page, 'board');
   assert.ok(heard.audible > 0.8, JSON.stringify(heard)); assert.equal(leaked.audible, 0, 'Studio preview never reaches the soundboard bus');
@@ -528,7 +549,7 @@ async function studioFlow(ctx) {
   await page.click('#boardNav');
   await tapStart(page, 'board');
   await page.locator('.sound-pad').nth(await padIndex(page, 'Studio combo')).locator('.pad-main').click();
-  await page.waitForTimeout(700); await press(page, '#stopAll');
+  await pause(page,700); await press(page, '#stopAll');
   assert.ok((await tapStop(page, 'board')).audible > 0.4, 'the rendered pad plays through the soundboard');
   await openMenu(page, 'Studio combo', 'source');
   await page.waitForFunction(id => window.__test.studio.current?.id === id && !document.querySelector('#studioView').hidden, projectId);
@@ -537,7 +558,7 @@ async function studioFlow(ctx) {
   // Export WAV: cancel writes nothing; a write failure keeps nothing partial; success writes a valid stereo WAV.
   const target = path.join(base, 'export.wav');
   await app.evaluate(({ dialog }) => { dialog.showSaveDialog = async () => ({ canceled: true }); });
-  await page.click('#studioExport'); await page.waitForTimeout(800);
+  await page.click('#studioExport'); await pause(page,800);
   await assert.rejects(fs.access(target));
   await app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, path.join(base, 'missing-folder', 'x.wav'));
   await page.click('#studioExport');
@@ -557,14 +578,14 @@ async function studioFlow(ctx) {
   await page.evaluate(() => { const observer = new MutationObserver(() => { if (!document.querySelector('#studioProgress').hidden) { document.querySelector('#studioCancelRender').click(); observer.disconnect(); } }); observer.observe(document.querySelector('#studioProgress'), { attributes: true }); });
   await page.click('#studioRender'); await askText(page, 'Never saved');
   await page.waitForFunction(() => document.querySelector('#toastText').textContent.includes('Render cancelled'));
-  await page.waitForTimeout(600);
+  await pause(page,600);
   assert.equal((await library(page)).clips.length, padCount);
   pass('Cancelling a render discards its result: no pad is created');
 
   // An edit after saving is kept in a recovery draft for the next launch.
   await page.locator(`.studio-region[data-id="${(await studioRegions(page))[0].id}"]`).click({ position: { x: 8, y: 8 } });
   await page.fill('#inspGain', '-3'); await page.locator('#inspGain').press('Enter');
-  await page.waitForTimeout(1500);
+  await pause(page,1500);
   const draft = JSON.parse(await fs.readFile(path.join(dataDir, 'projects', projectId, 'draft.json'), 'utf8'));
   assert.equal(draft.project.regions[0].gainDb, -3); assert.equal(draft.baseRevision, 1);
   const saved = JSON.parse(await fs.readFile(path.join(dataDir, 'projects', projectId, 'project.json'), 'utf8'));
@@ -633,7 +654,7 @@ async function recordFor(page, ms, { mode = 'dry', device = 'test-mic' } = {}) {
   await page.check(`input[name=recMode][value=${mode}]`);
   await press(page, '#recRecord');
   await page.waitForFunction(() => window.__test.recorder.state === 'recording');
-  await page.waitForTimeout(ms);
+  await pause(page,ms);
   await press(page, '#recStop');
   await page.waitForFunction(() => window.__test.recorder.state === 'idle');
 }
@@ -659,11 +680,12 @@ async function recorderFlow(ctx) {
   await press(page, '#recRecord'); await page.waitForFunction(() => window.__test.recorder.state === 'recording');
   assert.equal(await page.locator('#statusPill.live').count(), 0, 'recording never connects the broadcast');
   await page.evaluate(() => window.__test.engine.toggleMute());
-  await page.waitForTimeout(1200);
+  await pause(page,1200);
   await press(page, '#recStop'); await page.waitForFunction(() => window.__test.recorder.state === 'idle' && window.__test.recorder.take);
   await page.evaluate(() => window.__test.engine.toggleMute());
   const dry = await takeInfo(page);
-  assert.ok(dry.seconds > 0.9 && dry.seconds < 2 && Math.abs(dry.hz - 880) < 15 && dry.peak > 0.1, JSON.stringify(dry));
+  // At least the 1.2 s of audio that passed; the upper bound only guards against a runaway take.
+  assert.ok(dry.seconds > 0.9 && dry.seconds < 3.5 && Math.abs(dry.hz - 880) < 15 && dry.peak > 0.1, JSON.stringify(dry));
   assert.equal(await micStreams(page), 0, 'the recorder released its stream');
   await press(page, '#recPreview');
   await page.waitForFunction(() => window.__test.engine.auditionSession?.owner === 'recorder-take');
@@ -699,7 +721,7 @@ async function recorderFlow(ctx) {
   assert.equal(await micStreams(page), 1, 'the live stream is reused, not doubled');
   assert.equal(await liveTracks(page), tracksBefore, 'no second capture of the same microphone');
   await app(ctx).evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows().find(w => w.getTitle() === 'PulseDeck').webContents.send('shortcut', { type: 'play', id }), (await clipNamed(page, 'Studio combo')).id);
-  await page.waitForTimeout(1000);
+  await pause(page,1000);
   await press(page, '#recStop'); await page.waitForFunction(() => window.__test.recorder.state === 'idle');
   const live = await takeInfo(page);
   assert.ok(live.p880 > live.p540 * 20, 'the take holds the microphone, not the board mix: ' + JSON.stringify(live));
@@ -712,7 +734,7 @@ async function recorderFlow(ctx) {
   await page.selectOption('#recMic', 'test-mic-2'); await press(page, '#recRecord');
   await page.waitForFunction(() => window.__test.recorder.state === 'recording');
   assert.equal(await micStreams(page), 2);
-  await page.waitForTimeout(300); await press(page, '#recStop'); await page.waitForFunction(() => window.__test.recorder.state === 'idle');
+  await pause(page,300); await press(page, '#recStop'); await page.waitForFunction(() => window.__test.recorder.state === 'idle');
   assert.equal(await micStreams(page), 1);
   pass('Recording during a live call shares the same microphone stream, excludes the board mix, and never interrupts the call; another device gets its own stream');
 
@@ -721,7 +743,7 @@ async function recorderFlow(ctx) {
   await page.selectOption('#recMic', 'test-mic-2'); await press(page, '#recRecord');
   await page.waitForFunction(() => window.__test.recorder.state === 'acquiring');
   await press(page, '#recStop');
-  await page.waitForTimeout(700);
+  await pause(page,700);
   assert.equal(await page.evaluate(() => window.__test.recorder.state), 'idle');
   assert.equal(await micStreams(page), 1, 'a stream that arrived after cancel was released');
 
@@ -731,7 +753,7 @@ async function recorderFlow(ctx) {
   await page.waitForFunction(() => !document.querySelector('#recError').hidden && document.querySelector('#recError').textContent.includes('too short'));
   assert.equal(await page.evaluate(() => window.__test.recorder.take), null);
   await page.selectOption('#recMic', 'test-mic-2'); await press(page, '#recRecord');
-  await page.waitForFunction(() => window.__test.recorder.state === 'recording'); await page.waitForTimeout(600);
+  await page.waitForFunction(() => window.__test.recorder.state === 'recording'); await pause(page,600);
   await page.evaluate(() => { const track = window.testTracks.filter(t => t.readyState === 'live').at(-1); track.dispatchEvent(new Event('ended')); });
   await page.waitForFunction(() => window.__test.recorder.state === 'idle' && window.__test.recorder.take);
   assert.match(await page.locator('#recStatus').textContent(), /microphone disconnected/);
@@ -792,7 +814,7 @@ async function ttsFlow(ctx) {
   await tapStart(page, 'previewBus'); await tapStart(page, 'board');
   await page.click('#ttsPreview');
   await page.waitForFunction(() => window.__test.engine.auditionSession?.owner === 'tts');
-  await page.waitForTimeout(900);
+  await pause(page,900);
   const previewHeard = await tapStop(page, 'previewBus'), previewLeak = await tapStop(page, 'board');
   assert.ok(previewHeard.audible > 0.5 && previewLeak.audible === 0, JSON.stringify({ previewHeard, previewLeak }));
   await press(page, '#ttsStop');
@@ -804,8 +826,8 @@ async function ttsFlow(ctx) {
   await tapStart(page, 'board');
   await press(page, '#ttsSpeak');
   await page.waitForFunction(() => window.__test.tts.status === 'speaking');
-  await page.waitForFunction(() => window.__test.tts.status === 'ready', undefined, { timeout: 8000 });
-  await page.waitForTimeout(150);
+  await page.waitForFunction(() => window.__test.tts.status === 'ready', undefined, { timeout: 30000 });
+  await pause(page,150);
   const spoken = await tapStop(page, 'board');
   const expected = await page.evaluate(() => window.__test.tts.result.duration);
   assert.ok(Math.abs(spoken.audible - expected) < 0.08, JSON.stringify({ spoken, expected }));
@@ -820,7 +842,7 @@ async function ttsFlow(ctx) {
   await press(page, '#ttsSpeak');
   await page.waitForFunction(() => window.__test.tts.status === 'generating');
   await ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.getTitle() === 'PulseDeck').webContents.send('shortcut', { type: 'stop' }));
-  await page.waitForTimeout(250); await tapStart(page, 'board'); await page.waitForTimeout(700);
+  await pause(page,250); await tapStart(page, 'board'); await pause(page,700);
   assert.equal((await tapStop(page, 'board')).audible, 0, 'late speech never starts after Stop all');
   assert.equal(await page.evaluate(() => window.__test.engine.clipCount('tts')), 0);
 
@@ -839,7 +861,7 @@ async function ttsFlow(ctx) {
   assert.match(removed, /no longer installed/);
   assert.equal((await library(page)).clips.length, padCount, 'failed synthesis never creates a pad');
   assert.equal(await page.inputValue('#ttsText'), `${PHRASE}!`, 'the phrase is kept for retry');
-  await page.waitForTimeout(300);
+  await pause(page,300);
   assert.deepEqual(await fs.readdir(path.join(dataDir, 'tmp', 'tts')), [], 'no temporary speech files remain');
   await page.evaluate(() => document.querySelector('#ttsVoice option[value="Removed voice"]').remove());
   await hideToast(page);
@@ -966,10 +988,10 @@ async function retriggerFlow(ctx) {
   // Restart: one instance, and a fresh one each trigger (old callbacks cannot remove the new one).
   await editDialog(page, 'Match start', async () => { await page.selectOption('#editTrigger', 'restart'); });
   await until(page, async () => (await window.deck.getLibrary()).clips.find(c => c.name === 'Match start').triggerMode === 'restart');
-  await padClick(page, 'Match start'); await page.waitForTimeout(200);
+  await padClick(page, 'Match start'); await pause(page,200);
   const firstId = await page.evaluate(async id => window.__test.engine.clipInstances(id)[0]?.id, await clipId(page, 'Match start'));
   for (let i = 0; i < 5; i++) await padClick(page, 'Match start');
-  await page.waitForTimeout(300);
+  await pause(page,300);
   const after = await page.evaluate(async id => window.__test.engine.clipInstances(id).map(i => i.id), await clipId(page, 'Match start'));
   assert.equal(after.length, 1); assert.ok(after[0] > firstId, 'restart replaced the instance');
   // Loop + overlap is refused in the editor.
@@ -987,7 +1009,7 @@ async function retriggerFlow(ctx) {
   await page.reload(); await page.waitForFunction(() => Boolean(window.__test)); await stubHardware(page); await connect(page);
   await padClick(page, 'Expandable line');
   await padClick(page, 'Take one'); await until(page, async () => (await window.deck.getLibrary()).clips.some(c => c.name === 'Take one' && window.__test.engine.clipCount(c.id) === 1));
-  await padClick(page, 'Match start'); await page.waitForTimeout(250);
+  await padClick(page, 'Match start'); await pause(page,250);
   assert.equal(await counts(page, 'Take one'), 0, 'the other sound in the group stopped');
   assert.equal(await counts(page, 'Match start'), 1);
   assert.equal(await counts(page, 'Expandable line'), 1, 'ungrouped sounds keep playing');
@@ -995,8 +1017,8 @@ async function retriggerFlow(ctx) {
   await page.evaluate(async id => window.deck.editSound(id, { loop: true, triggerMode: 'restart' }), await clipId(page, 'Expandable line'));
   await page.reload(); await page.waitForFunction(() => Boolean(window.__test)); await stubHardware(page); await installTap(page, 'board'); await connect(page);
   await padClick(page, 'Expandable line'); await padClick(page, 'Take one'); await padClick(page, 'Take one');
-  await page.waitForTimeout(300); await press(page, '#stopAll');
-  await page.waitForTimeout(250); await tapStart(page, 'board'); await page.waitForTimeout(500);
+  await pause(page,300); await press(page, '#stopAll');
+  await pause(page,250); await tapStart(page, 'board'); await pause(page,500);
   assert.equal((await tapStop(page, 'board')).audible, 0); assert.equal(await page.evaluate(() => window.__test.engine.instances.size), 0);
   await page.evaluate(async id => window.deck.editSound(id, { loop: false }), await clipId(page, 'Expandable line'));
   pass('Overlap stacks independent copies (×N badge, 8-copy cap), Restart replaces the instance, loop+overlap is refused, exclusive groups stop each other but not ungrouped sounds, and Stop all clears mixed loops/overlaps');
@@ -1015,8 +1037,8 @@ async function queueFlow(ctx) {
   await tapStart(page, 'board');
   await press(page, '#queuePlay');
   await page.waitForFunction(() => window.__test.queue.state === 'playing');
-  await page.waitForFunction(() => window.__test.queue.state === 'stopped', undefined, { timeout: 20000 });
-  await page.waitForTimeout(200);
+  await page.waitForFunction(() => window.__test.queue.state === 'stopped', undefined, { timeout: 60000 });
+  await pause(page,200);
   const all = await tapStop(page, 'board');
   const expected = durations.take * 2 + durations.match;
   assert.ok(Math.abs(all.audible - expected) < 0.35, `three entries, each once (a looping pad included): ${all.audible} vs ${expected}`);
@@ -1026,19 +1048,19 @@ async function queueFlow(ctx) {
   // Pause resumes from the same position; Next moves on; an outside stop pauses; Stop all keeps entries.
   for (const name of ['Match start', 'Take one', 'Match start']) await openMenu(page, name, 'queue');
   await tapStart(page, 'board');
-  await press(page, '#queuePlay'); await page.waitForTimeout(700);
+  await press(page, '#queuePlay'); await pause(page,700);
   await press(page, '#queuePlay');
   await page.waitForFunction(() => window.__test.queue.state === 'paused');
   const offset = await page.evaluate(() => window.__test.queue.offset);
   assert.ok(offset > 0.4 && offset < durations.match, `paused at ${offset}`);
-  await page.waitForTimeout(400);
+  await pause(page,400);
   await press(page, '#queuePlay');
-  await page.waitForFunction(() => window.__test.queue.entries.length === 2, undefined, { timeout: 8000 });
+  await page.waitForFunction(() => window.__test.queue.entries.length === 2, undefined, { timeout: 30000 });
   const firstEntry = await tapStop(page, 'board');
   assert.ok(firstEntry.audible < durations.match + 0.8, 'resume continued instead of restarting the entry');
   await press(page, '#queueNext');
   await page.waitForFunction(() => window.__test.queue.entries.length === 1 && window.__test.queue.state === 'playing');
-  await page.waitForTimeout(200);
+  await pause(page,200);
   await padClick(page, 'Match start');
   await page.waitForFunction(() => window.__test.queue.state === 'paused' && !document.querySelector('#queueMessage').hidden);
   assert.match(await page.locator('#queueMessage').textContent(), /stopped outside the queue/);
@@ -1046,7 +1068,7 @@ async function queueFlow(ctx) {
   await openMenu(page, 'Take one', 'queue');
   await press(page, '#queuePlay'); await page.waitForFunction(() => window.__test.queue.state === 'playing');
   await press(page, '#stopAll');
-  await page.waitForTimeout(250); await tapStart(page, 'board'); await page.waitForTimeout(700);
+  await pause(page,250); await tapStart(page, 'board'); await pause(page,700);
   assert.equal((await tapStop(page, 'board')).audible, 0, 'no late queue dispatch after Stop all');
   assert.equal(await page.evaluate(() => window.__test.queue.state), 'stopped');
   assert.equal(await page.locator('.queue-item').count(), 2, 'Stop all keeps pending entries');
@@ -1065,27 +1087,28 @@ async function duckingFlow(ctx) {
   await until(page, async () => (await window.deck.getLibrary()).settings.ducking.enabled === true);
   await page.evaluate(async id => window.deck.editSound(id, { loop: true, triggerMode: 'restart' }), await clipId(page, 'Take one'));
   const measure = async () => {
-    await tapStart(page, 'board'); await tapStart(page, 'boardOut'); await page.waitForTimeout(500);
+    await tapStart(page, 'board'); await tapStart(page, 'boardOut'); await pause(page,500);
     const before = await tapStop(page, 'board'), after = await tapStop(page, 'boardOut');
     return 20 * Math.log10(Math.max(1e-6, after.peak) / Math.max(1e-6, before.peak));
   };
   await page.reload(); await page.waitForFunction(() => Boolean(window.__test)); await stubHardware(page); await installTap(page, 'board'); await installTap(page, 'boardOut'); await connect(page, 'test-mic');
   await padClick(page, 'Take one');
-  await page.waitForTimeout(600);
+  await pause(page,600);
   const speaking = await measure();
   assert.ok(speaking < -10 && speaking > -14, `speech lowers the board about 12 dB (${speaking.toFixed(1)} dB)`);
   assert.match(await page.locator('#duckState').textContent(), /Lowering sounds/);
-  await page.click('#muteBtn'); await page.waitForTimeout(900);
+  await page.click('#muteBtn'); await pause(page,900);
   const muted = await measure();
   assert.ok(muted > -1, `a muted microphone does not duck (${muted.toFixed(1)} dB)`);
   await page.click('#muteBtn');
-  await page.evaluate(() => { window.testMicGainNode.gain.value = 0.002; }); await page.waitForTimeout(900);
+  await page.evaluate(() => { window.testMicGainNode.gain.value = 0.002; }); await pause(page,900);
   const quiet = await measure();
   assert.ok(quiet > -1, `a microphone below the threshold does not duck (${quiet.toFixed(1)} dB)`);
-  await page.evaluate(() => { window.testMicGainNode.gain.value = 0.2; }); await page.waitForTimeout(600);
+  await page.evaluate(() => { window.testMicGainNode.gain.value = 0.2; }); await pause(page,600);
   assert.ok((await measure()) < -10);
-  await page.uncheck('#duckEnabled'); await page.waitForTimeout(900);
-  assert.ok((await measure()) > -1, 'turning ducking off returns to unity');
+  await page.uncheck('#duckEnabled');
+  // Turning ducking off releases to unity, then takes the ducker out of the board path entirely.
+  await page.waitForFunction(() => window.__test.engine.boardOut === window.__test.engine.board && window.__test.engine.ducker === null && window.__test.engine.duckGain === 1);
   assert.equal((await library(page)).settings.boardVolume, boardVolume, 'the saved board volume is never changed');
   assert.ok(await ctx.app.evaluate(({ BrowserWindow }) => !BrowserWindow.getAllWindows().find(w => w.getTitle() === 'PulseDeck').isVisible()), 'measured with the window hidden');
   await press(page, '#stopAll');
@@ -1108,7 +1131,7 @@ async function exportFlow(ctx) {
   await page.click('#boardNav');
   const out = path.join(base, 'exports'); await fs.mkdir(out, { recursive: true });
   await app.evaluate(({ dialog }) => { dialog.showSaveDialog = async () => ({ canceled: true }); });
-  await openMenu(page, 'Timecode', 'export-region'); await page.waitForTimeout(900);
+  await openMenu(page, 'Timecode', 'export-region'); await pause(page,900);
   assert.deepEqual(await fs.readdir(out), [], 'Cancel writes no file');
   const regionFile = path.join(out, 'region.wav');
   await app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, regionFile);
@@ -1171,7 +1194,7 @@ async function queueAfterRestart(ctx) {
   const { page } = ctx;
   await page.waitForFunction(n => window.__test.queue.entries.length === n, ctx.queuedAtRestart);
   assert.equal(await page.evaluate(() => window.__test.queue.state), 'stopped');
-  await page.waitForTimeout(500);
+  await pause(page,500);
   assert.equal(await page.evaluate(() => window.__test.engine.instances.size), 0, 'a restored queue never plays by itself');
   pass('Pending queue entries are restored after restart, stopped, without playing');
 }
@@ -1188,8 +1211,8 @@ async function ttsAfterRestart(ctx) {
   await tapStart(page, 'board');
   await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows().find(w => w.getTitle() === 'PulseDeck').webContents.send('shortcut', { type: 'play', id }), ctx.ttsPad);
   await page.waitForFunction(() => document.querySelector('.sound-pad.playing'));
-  await page.waitForFunction(() => !document.querySelector('.sound-pad.playing'), undefined, { timeout: 8000 });
-  await page.waitForTimeout(150);
+  await page.waitForFunction(() => !document.querySelector('.sound-pad.playing'), undefined, { timeout: 30000 });
+  await pause(page,150);
   assert.ok((await tapStop(page, 'board')).audible > 1, 'the saved speech pad plays its stored audio after restart');
   pass('A saved speech pad plays its stored audio after restart through the board, without re-synthesizing');
 }
@@ -1224,8 +1247,8 @@ async function main() {
     await tapStart(page);
     await page.locator('.sound-pad').nth(await padIndex(page, 'Timecode')).locator('.pad-main').click();
     await page.waitForFunction(() => document.querySelector('.sound-pad.playing'));
-    await page.waitForFunction(() => !document.querySelector('.sound-pad.playing'), undefined, { timeout: 9000 });
-    await page.waitForTimeout(150);
+    await page.waitForFunction(() => !document.querySelector('.sound-pad.playing'), undefined, { timeout: 30000 });
+    await pause(page,150);
     const restarted = await tapStop(page);
     assert.ok(Math.abs(restarted.audible - 4.75) < 0.06 && Math.abs(restarted.startHz - 540) < 12 && Math.abs(restarted.endHz - 640) < 12, JSON.stringify(restarted));
     pass('The saved region plays exactly after restarting the app');

@@ -72,7 +72,7 @@ previews (region editor, capture editor, Studio, recorder, TTS) → preview bus 
 - Playback is instance-based (`engine.instances`): `play(clip, { mode, owner, from })` resolves a handle whose `done` promise reports `{ reason }` once. Trigger modes are toggle/restart/overlap; exclusive groups stop other clips in the group; caps are 32 total / 8 per clip. Every trigger path calls `play`, which applies the clip's region (`playback-region.js`). `stopAll()` stops pads, the queue instance, and previews, and emits `stopall`; it never releases the microphone, replay, or a recording.
 - The preview bus is never connected to the board, mic, broadcast, or replay. `startAudition(deviceId)` refuses a missing/default device or the broadcast output (`code: 'NO_PREVIEW_DEVICE'`); the renderer's `previewDevice()` also refuses virtual devices.
 - Microphone ownership: `acquireMic(deviceId)` returns a per-device lease; the stream stops when the last lease is released. The live chain and the recorder each connect their own tap node, so disconnecting one never cuts the other.
-- `ducking-worklet.js` lowers only the board, keyed by the live mic after mute and gain. Attack/release are 95% times.
+- `ducking-worklet.js` lowers only the board, keyed by the live mic after mute and gain. Attack/release are 95% times. `routeDucking()` inserts the ducker only while ducking is on (turning it off releases to unity, then bypasses it), and the preview limiter is connected to its output only during a preview, so idle features add no audio-thread work.
 
 - The broadcast gain stays at 0 until `connect()` succeeds. The context starts with `sinkId: {type:'none'}`.
 - `default` and `communications` are rejected as outputs, so a failure never falls back to the speakers.
@@ -130,6 +130,8 @@ previews (region editor, capture editor, Studio, recorder, TTS) → preview bus 
 - Test devices are named like real ones (`CABLE Input (test)`, `BlackHole 2ch`) so that `platform.js` detection works.
 - Native dialogs are replaced from the main process with `app.evaluate(({ dialog }) => …)`.
 - With `PULSEDECK_TEST=1` the renderer exposes `window.__test` (engine, studio, recorder, tts, queue, state) and records every toast in `window.__toasts`. `tests/features.cjs` measures real output by tapping `engine.board`, `engine.boardOut`, or `engine.previewBus` with a ScriptProcessor (which delivers audio about two buffers late, so wait before checking silence).
+- On CI runners the audio clock can run at about half of wall-clock speed. Tests that let audio play must wait on `engine.context.currentTime` (the `pause()` helper in `tests/features.cjs`), not on fixed wall-clock timeouts. Use DOM clicks (`press()`) for timing-sensitive controls, because Playwright's `click()` waits on animation frames that barely run in hidden windows. For the same reason, `page.waitForFunction` polls on animation frames by default; pass `{ polling: 25 }` (milliseconds) for any wait whose timing matters.
+- CI job logs need a token, but annotations are public. The Electron test scripts print failures as `::error::` annotations; read them with `curl -s https://api.github.com/repos/IsaacHHB/pulsedeck/check-runs/<job id>/annotations`.
 - `tests/tts-real.cjs` (`npm run test:tts-real`) exercises this machine's real voices. The real-voice case in `tts.test.cjs` is skipped when `CI` is set; CI runs `tts-real.cjs` on macOS as a non-blocking step.
 
 ## Releasing ("push to prod")

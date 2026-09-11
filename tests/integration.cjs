@@ -221,7 +221,8 @@ async function main() {
     await page.click('#replayNav'); await page.check('#replayToggle');
     await page.waitForFunction(() => document.querySelector('#replayArm').classList.contains('armed') && !document.querySelector('#captureBtn').disabled);
     await page.waitForFunction(() => document.querySelector('#replayLevelLabel').textContent === 'Sound');
-    await page.waitForTimeout(1600);
+    // Wait on the audio clock: on a busy CI machine it can run slower than the wall clock.
+    await page.evaluate(async () => { const ctx = window.__test.engine.context, start = ctx.currentTime; while (ctx.currentTime - start < 1.5) await new Promise(r => setTimeout(r, 50)); });
     await page.click('#captureBtn');
     await page.waitForFunction(() => document.querySelectorAll('.capture').length === 1 && !document.querySelector('#editor').hidden);
     const captureMeta = await page.locator('#captureMeta').textContent(); assert.match(captureMeta, /0:0[1-9]/, captureMeta);

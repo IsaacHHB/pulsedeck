@@ -106,12 +106,8 @@ export class AudioEngine extends EventTarget {
         });
         this.board = ctx.createGain();
         this.mic = ctx.createGain();
-        // Board → ducker (input 0), live mic after mute/gain → ducker (input 1). The ducker only lowers the board.
-        this.ducker = new AudioWorkletNode(ctx, 'ducker', { numberOfInputs: 2, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: this.duckingSettings() });
-        this.duckGain = 1;
-        this.ducker.port.onmessage = event => { this.duckGain = event.data.gain; };
-        this.board.connect(this.ducker, 0, 0); this.mic.connect(this.ducker, 0, 1);
-        this.boardOut = this.ducker;
+        // The ducker sits between the board and the mix only while ducking is on (see routeDucking), so it costs nothing otherwise.
+        this.boardOut = this.board; this.ducker = null; this.duckGain = 1;
         this.mix = ctx.createGain();
         this.limiter = new AudioWorkletNode(ctx, 'peak-limiter', { outputChannelCount: [2] });
         this.boardOut.connect(this.mix); this.mic.connect(this.mix); this.mix.connect(this.limiter);
@@ -128,7 +124,8 @@ export class AudioEngine extends EventTarget {
         this.previewBus = ctx.createGain();
         this.previewLimiter = new AudioWorkletNode(ctx, 'peak-limiter', { outputChannelCount: [2], processorOptions: { ceiling: 10 ** (-3 / 20) } });
         this.previewDestination = ctx.createMediaStreamDestination();
-        this.previewBus.connect(this.previewLimiter); this.previewLimiter.connect(this.previewDestination);
+        // The preview limiter reaches its output only during a preview, so an idle preview route does no work.
+        this.previewBus.connect(this.previewLimiter);
         this.previewOut.srcObject = this.previewDestination.stream;
         this.setMonitorVoice(Boolean(this.settings.monitorVoice));
         this.applySettings(this.settings);
@@ -283,7 +280,46 @@ export class AudioEngine extends EventTarget {
         this.mic.gain.setTargetAtTime(this.muted ? 0 : (this.settings.micVolume ?? 100) / 100, now, 0.015);
         this.monitorBus.gain.setTargetAtTime(this.monitoring ? (this.settings.monitorVolume ?? 50) / 100 : 0, now, 0.015);
         this.previewBus.gain.setTargetAtTime((this.settings.monitorVolume ?? 50) / 100, now, 0.015);
-        this.ducker.port.postMessage(this.duckingSettings());
+        this.routeDucking();
+    }
+
+    /** Inserts the ducker while ducking is on. Turning it off releases toward unity first, then bypasses it. */
+    routeDucking() {
+        if (!this.context) return;
+        const settings = this.duckingSettings();
+        clearTimeout(this.duckBypassTimer);
+        if (settings.enabled) {
+            if (this.ducker) { this.ducker.port.postMessage(settings); return; }
+            // Board → ducker (input 0), live mic after mute/gain → ducker (input 1). The ducker only lowers the board.
+            const ducker = new AudioWorkletNode(this.context, 'ducker', { numberOfInputs: 2, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: settings });
+            ducker.port.onmessage = event => { if (this.ducker === ducker) this.duckGain = event.data.gain; };
+            this.mic.connect(ducker, 0, 1);
+            this.board.connect(ducker, 0, 0);
+            this.ducker = ducker; this.duckGain = 1;
+            this.swapBoardOut(ducker);
+        } else if (this.ducker) {
+            const ducker = this.ducker;
+            ducker.port.postMessage(settings);
+            this.duckBypassTimer = setTimeout(() => {
+                if (this.ducker !== ducker || this.duckingSettings().enabled) return;
+                this.swapBoardOut(this.board);
+                try { this.board.disconnect(ducker); } catch { /* already disconnected */ }
+                try { this.mic.disconnect(ducker); } catch { /* already disconnected */ }
+                ducker.disconnect(); ducker.port.onmessage = null;
+                this.ducker = null; this.duckGain = 1;
+            }, settings.release + 150);
+        }
+    }
+
+    /** Moves the board's route to the mix (and to headphone monitoring without voice) onto `node`. */
+    swapBoardOut(node) {
+        const old = this.boardOut;
+        if (old === node) return;
+        try { old.disconnect(this.mix); } catch { /* not connected */ }
+        try { old.disconnect(this.monitorBus); } catch { /* not connected */ }
+        node.connect(this.mix);
+        if (!this.settings.monitorVoice) node.connect(this.monitorBus);
+        this.boardOut = node;
     }
 
     /** Ducking parameters from settings (off unless the user turned it on). */
@@ -622,6 +658,7 @@ export class AudioEngine extends EventTarget {
         session.resolve = resolve;
         session.add = source => { session.sources.push(source); return source; };
         this.auditionSession = session;
+        this.previewLimiter.connect(this.previewDestination);
         try {
             await this.previewOut.setSinkId(deviceId);
             await this.previewOut.play();
@@ -662,6 +699,7 @@ export class AudioEngine extends EventTarget {
         session.stopped = true;
         for (const source of session.sources) { try { source.onended = null; source.stop(); } catch { /* not started */ } }
         try { session.input.disconnect(); } catch { /* already disconnected */ }
+        try { this.previewLimiter.disconnect(this.previewDestination); } catch { /* already disconnected */ }
         this.previewOut.pause();
         session.resolve({ reason });
         this.emit('audition', false);
